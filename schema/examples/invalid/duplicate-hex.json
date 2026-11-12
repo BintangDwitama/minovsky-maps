@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "name": "Minimal"
+  },
+  "board": {
+    "kind": "inline",
+    "orientation": "flat",
+    "hexes": [
+      {
+        "q": 0,
+        "r": 0
+      },
+      {
+        "q": 0,
+        "r": 0
+      }
+    ]
+  },
+  "elevation": [],
+  "components": [],
+  "rules": {
+    "deployment": "bases",
+    "squadSize": 3,
+    "terrainSetup": "fixed"
+  },
+  "goals": []
+}

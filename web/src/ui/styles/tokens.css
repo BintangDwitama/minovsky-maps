@@ -1,0 +1,68 @@
+/*
+ * Design tokens. Side colours use the Okabe-Ito colour-blind-safe palette (blue / vermillion);
+ * every owned glyph also carries a letter (A/B) and terrain uses patterns, so nothing relies on hue alone.
+ */
+:root {
+  color-scheme: light dark;
+
+  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, monospace;
+
+  --side-a: #0072b2;
+  --side-a-ink: #ffffff;
+  --side-b: #d55e00;
+  --side-b-ink: #ffffff;
+  --neutral: #8a8f98;
+  --neutral-ink: #1b1d21;
+
+  --terrain-water: #56b4e9;
+  --terrain-debris: #7d6b55;
+  --terrain-impassable: #2b2b2e;
+  --terrain-minovsky: #cc79a7;
+
+  --hex-ground: #e9dcc3;
+  --hex-stroke: #b9a888;
+  --elev-1: #c9a77a;
+  --elev-2: #a97f50;
+  --elev-3: #8a6237;
+  --elev-high: #6b4826;
+  --elev-ink: #ffffff;
+
+  --energy: #f0c419;
+  --upgrade: #c7ccd4;
+  --objective: #fafafa;
+  --token: #7e57c2;
+
+  --highlight-select: #ffd400;
+  --highlight-warning: #ff3b3b;
+
+  --bg: #f4f4f6;
+  --panel: #ffffff;
+  --panel-2: #f0f1f4;
+  --border: #d9dbe1;
+  --text: #1b1d21;
+  --text-muted: #5f6470;
+  --accent: #0072b2;
+  --danger: #c0392b;
+  --warning-bg: #fff4e0;
+  --warning-text: #8a5300;
+  --board-bg: #23262d;
+
+  --radius: 6px;
+  --gap: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #15171b;
+    --panel: #1d2026;
+    --panel-2: #252931;
+    --border: #343944;
+    --text: #e8eaee;
+    --text-muted: #9aa1ad;
+    --accent: #56b4e9;
+    --warning-bg: #3a2c12;
+    --warning-text: #ffcf7a;
+    --board-bg: #0f1114;
+  }
+}

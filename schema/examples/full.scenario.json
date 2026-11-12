@@ -1,0 +1,165 @@
+{
+  "schemaVersion": 1,
+  "meta": {
+    "name": "Every Component",
+    "author": "fixture",
+    "description": "One of each component kind on a 7-hex board."
+  },
+  "board": {
+    "kind": "inline",
+    "orientation": "flat",
+    "hexes": [
+      {
+        "q": 0,
+        "r": 0
+      },
+      {
+        "q": 0,
+        "r": -1
+      },
+      {
+        "q": 1,
+        "r": -1
+      },
+      {
+        "q": 1,
+        "r": 0,
+        "tags": [
+          "water",
+          "minovsky"
+        ]
+      },
+      {
+        "q": 0,
+        "r": 1
+      },
+      {
+        "q": -1,
+        "r": 1,
+        "tags": [
+          "impassable"
+        ]
+      },
+      {
+        "q": -1,
+        "r": 0,
+        "tags": [
+          "debris"
+        ]
+      }
+    ]
+  },
+  "elevation": [
+    {
+      "q": 0,
+      "r": 0,
+      "level": 1
+    },
+    {
+      "q": 1,
+      "r": -1,
+      "level": 2
+    }
+  ],
+  "components": [
+    {
+      "id": "c-carrier",
+      "kind": "carrier",
+      "owner": "A",
+      "hex": {
+        "q": 0,
+        "r": 0
+      },
+      "facing": 0
+    },
+    {
+      "id": "c-base",
+      "kind": "base",
+      "owner": "B",
+      "hex": {
+        "q": 1,
+        "r": -1
+      }
+    },
+    {
+      "id": "c-garrison",
+      "kind": "garrison",
+      "owner": "B",
+      "hex": {
+        "q": 1,
+        "r": 0
+      }
+    },
+    {
+      "id": "c-upgrade",
+      "kind": "upgrade",
+      "owner": "neutral",
+      "hex": {
+        "q": -1,
+        "r": 1
+      },
+      "upgradeType": "shield"
+    },
+    {
+      "id": "c-energy",
+      "kind": "energy",
+      "owner": "neutral",
+      "hex": {
+        "q": -1,
+        "r": 0
+      }
+    },
+    {
+      "id": "c-objective",
+      "kind": "objective",
+      "owner": "neutral",
+      "hex": {
+        "q": 1,
+        "r": 0
+      },
+      "objectiveType": "carryable",
+      "label": "Data core"
+    },
+    {
+      "id": "c-token",
+      "kind": "token",
+      "owner": "neutral",
+      "hex": {
+        "q": -1,
+        "r": 1
+      },
+      "label": "Supply drop",
+      "note": "Scenario-specific"
+    },
+    {
+      "id": "c-structure",
+      "kind": "structure",
+      "owner": "A",
+      "hex": {
+        "q": -1,
+        "r": 0
+      },
+      "label": "Comms tower"
+    }
+  ],
+  "rules": {
+    "deployment": "carriers",
+    "squadSize": 5,
+    "massProducedLimit": 2,
+    "terrainSetup": "free"
+  },
+  "goals": [
+    {
+      "id": "g1",
+      "text": "Hold the data core at the end of Phase 1.",
+      "vp": 3,
+      "scoring": "phase1"
+    },
+    {
+      "id": "g2",
+      "text": "Control the comms tower.",
+      "vp": 2,
+      "scoring": "each-phase"
+    }
+  ]
+}

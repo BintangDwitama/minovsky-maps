@@ -1,0 +1,269 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://minovsky-maps.dev/schema/scenario.v1.schema.json",
+  "title": "ScenarioV1",
+  "description": "A Gundam Assemble fan scenario: board, elevation, components, rules and goals. Coordinates are axial {q, r} on a flat-top hex grid.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "meta", "board", "elevation", "components", "rules", "goals"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "meta": { "$ref": "#/$defs/Meta" },
+    "board": { "$ref": "#/$defs/Board" },
+    "elevation": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/ElevationEntry" }
+    },
+    "components": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Component" }
+    },
+    "rules": { "$ref": "#/$defs/Rules" },
+    "goals": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Goal" }
+    }
+  },
+  "$defs": {
+    "Hex": {
+      "title": "Hex",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["q", "r"],
+      "properties": {
+        "q": { "type": "integer" },
+        "r": { "type": "integer" }
+      }
+    },
+    "Meta": {
+      "title": "Meta",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "author": { "type": "string", "maxLength": 120 },
+        "description": { "type": "string", "maxLength": 5000 }
+      }
+    },
+    "TerrainTag": {
+      "title": "TerrainTag",
+      "type": "string",
+      "enum": ["water", "debris", "impassable", "minovsky"]
+    },
+    "BoardHex": {
+      "title": "BoardHex",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["q", "r"],
+      "properties": {
+        "q": { "type": "integer" },
+        "r": { "type": "integer" },
+        "tags": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/TerrainTag" }
+        }
+      }
+    },
+    "Board": {
+      "title": "Board",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "orientation", "hexes"],
+      "properties": {
+        "kind": { "const": "inline" },
+        "orientation": { "const": "flat" },
+        "hexes": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/BoardHex" }
+        }
+      }
+    },
+    "ElevationEntry": {
+      "title": "ElevationEntry",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["q", "r", "level"],
+      "properties": {
+        "q": { "type": "integer" },
+        "r": { "type": "integer" },
+        "level": { "type": "integer", "minimum": 1, "maximum": 9 }
+      }
+    },
+    "Side": {
+      "title": "Side",
+      "type": "string",
+      "enum": ["A", "B"]
+    },
+    "Owner": {
+      "title": "Owner",
+      "type": "string",
+      "enum": ["A", "B", "neutral"]
+    },
+    "Facing": {
+      "title": "Facing",
+      "description": "Flat-top hex direction: 0 = north, then clockwise (NE, SE, S, SW, NW).",
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 5
+    },
+    "ComponentId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "Label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 60
+    },
+    "Note": {
+      "type": "string",
+      "maxLength": 500
+    },
+    "BaseComponent": {
+      "title": "BaseComponent",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "owner", "hex"],
+      "properties": {
+        "id": { "$ref": "#/$defs/ComponentId" },
+        "kind": { "const": "base" },
+        "owner": { "$ref": "#/$defs/Side" },
+        "hex": { "$ref": "#/$defs/Hex" }
+      }
+    },
+    "CarrierComponent": {
+      "title": "CarrierComponent",
+      "description": "Occupies three hexes in a line: hex is the middle; front = neighbour in facing direction; back = opposite neighbour.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "owner", "hex", "facing"],
+      "properties": {
+        "id": { "$ref": "#/$defs/ComponentId" },
+        "kind": { "const": "carrier" },
+        "owner": { "$ref": "#/$defs/Side" },
+        "hex": { "$ref": "#/$defs/Hex" },
+        "facing": { "$ref": "#/$defs/Facing" }
+      }
+    },
+    "GarrisonComponent": {
+      "title": "GarrisonComponent",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "owner", "hex"],
+      "properties": {
+        "id": { "$ref": "#/$defs/ComponentId" },
+        "kind": { "const": "garrison" },
+        "owner": { "$ref": "#/$defs/Side" },
+        "hex": { "$ref": "#/$defs/Hex" }
+      }
+    },
+    "UpgradeComponent": {
+      "title": "UpgradeComponent",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "owner", "hex", "upgradeType"],
+      "properties": {
+        "id": { "$ref": "#/$defs/ComponentId" },
+        "kind": { "const": "upgrade" },
+        "owner": { "const": "neutral" },
+        "hex": { "$ref": "#/$defs/Hex" },
+        "upgradeType": { "type": "string", "enum": ["shield", "speed", "strength"] }
+      }
+    },
+    "EnergyComponent": {
+      "title": "EnergyComponent",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "owner", "hex"],
+      "properties": {
+        "id": { "$ref": "#/$defs/ComponentId" },
+        "kind": { "const": "energy" },
+        "owner": { "const": "neutral" },
+        "hex": { "$ref": "#/$defs/Hex" }
+      }
+    },
+    "ObjectiveComponent": {
+      "title": "ObjectiveComponent",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "owner", "hex", "objectiveType"],
+      "properties": {
+        "id": { "$ref": "#/$defs/ComponentId" },
+        "kind": { "const": "objective" },
+        "owner": { "const": "neutral" },
+        "hex": { "$ref": "#/$defs/Hex" },
+        "objectiveType": { "type": "string", "enum": ["controllable", "carryable"] },
+        "label": { "$ref": "#/$defs/Label" }
+      }
+    },
+    "TokenComponent": {
+      "title": "TokenComponent",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "owner", "hex", "label"],
+      "properties": {
+        "id": { "$ref": "#/$defs/ComponentId" },
+        "kind": { "const": "token" },
+        "owner": { "$ref": "#/$defs/Owner" },
+        "hex": { "$ref": "#/$defs/Hex" },
+        "label": { "$ref": "#/$defs/Label" },
+        "note": { "$ref": "#/$defs/Note" }
+      }
+    },
+    "StructureComponent": {
+      "title": "StructureComponent",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind", "owner", "hex", "label"],
+      "properties": {
+        "id": { "$ref": "#/$defs/ComponentId" },
+        "kind": { "const": "structure" },
+        "owner": { "$ref": "#/$defs/Owner" },
+        "hex": { "$ref": "#/$defs/Hex" },
+        "label": { "$ref": "#/$defs/Label" },
+        "note": { "$ref": "#/$defs/Note" }
+      }
+    },
+    "Component": {
+      "title": "Component",
+      "oneOf": [
+        { "$ref": "#/$defs/BaseComponent" },
+        { "$ref": "#/$defs/CarrierComponent" },
+        { "$ref": "#/$defs/GarrisonComponent" },
+        { "$ref": "#/$defs/UpgradeComponent" },
+        { "$ref": "#/$defs/EnergyComponent" },
+        { "$ref": "#/$defs/ObjectiveComponent" },
+        { "$ref": "#/$defs/TokenComponent" },
+        { "$ref": "#/$defs/StructureComponent" }
+      ]
+    },
+    "Rules": {
+      "title": "Rules",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["deployment", "squadSize", "terrainSetup"],
+      "properties": {
+        "deployment": { "type": "string", "enum": ["bases", "carriers"] },
+        "squadSize": { "type": "integer", "minimum": 1, "maximum": 20 },
+        "massProducedLimit": { "type": "integer", "minimum": 0, "maximum": 20 },
+        "terrainSetup": { "type": "string", "enum": ["fixed", "free"] }
+      }
+    },
+    "Goal": {
+      "title": "Goal",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "text", "vp", "scoring"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 64 },
+        "text": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "vp": { "type": "integer", "minimum": 0, "maximum": 99 },
+        "scoring": { "type": "string", "enum": ["phase1", "phase2", "each-phase"] }
+      }
+    }
+  }
+}

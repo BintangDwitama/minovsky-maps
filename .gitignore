@@ -20,3 +20,9 @@ desktop.ini
 
 # Logs
 *.log
+
+# Node / web toolchain
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
