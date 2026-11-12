@@ -1,20 +1,82 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+context: |
+  # Product
+  Minovsky Maps: a fan-made map/scenario editor and sharing platform for the
+  Gundam Assemble tabletop wargame (Bandai, 2026). Players design their own
+  scenarios (board terrain, elevation, components, goals), export/print them,
+  and later share them with other players.
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     tasks:
-#       - Break tasks into chunks of max 2 hours
+  # Domain vocabulary (from the Core Rulebook v1.0, described in our own words)
+  - Board: the printed hex mat. Flat-top hexes, default template 15x15, "odd-q"
+    offset (first/leftmost column sits higher). Size/shape is customizable.
+    Board shape is stored as an explicit set of hexes, not just width x height.
+  - Hex coordinates: stored as axial {q, r}; offset coords are display-only.
+  - Terrain tags (printed on the board, per hex, a set): water, debris,
+    impassable, minovsky (Minovsky Particles can overlap other terrain).
+  - Elevation: integer per hex = number of stacked height-1 pillars
+    (0 = ground level). Lowest level on a map is ground.
+  - Scenario: references a Board (official template or inline custom) and adds
+    elevation, components, rules and goals. Many scenarios can share one Board.
+  - Components (placed on hexes; any component is allowed on any hex):
+    base (owner A/B, 1 hex), carrier (owner A/B, 3 hexes in a line with front/
+    middle/back + facing; replaces bases), garrison (owner A/B), upgrade
+    (shield|speed|strength), energy, objective (controllable|carryable),
+    token (scenario-defined, labelled), structure (scenario-defined, labelled).
+  - Exactly two sides: A and B. Neutral components have no owner.
+  - Scenario rules: deployment (bases|carriers), squad size, mass-produced
+    limit, terrain setup (fixed|free).
+  - Goals: free text + VP + scoring (phase1|phase2|each-phase). Games are two
+    Phases of 10 rounds.
+  - Derived, never stored: pillar count, placement warnings (soft, never
+    blocking), and later line-of-sight / movement-reach analysis.
+  - Principle: the format describes GAME STATE, not physical props. Fan-made
+    and official pieces both work.
+
+  # Architecture
+  Monorepo, frontend and backend fully separated (own builds, deps, deploys):
+    web/      React + TypeScript (Vite) SPA
+    server/   Go HTTP API (+ Postgres) - arrives with sharing, not in v1
+    schema/   scenario JSON Schema = single source of truth for both sides;
+              includes schemaVersion, with migrations for old documents
+    openspec/ specs and changes for both sides
+  Frontend layering:
+    web/src/domain/          pure TS, no React (hex math, model, validation)
+    web/src/application/     use-cases (paint, place, undo/redo, save/load)
+    web/src/infrastructure/  port implementations (local file, API stores)
+    web/src/ui/              atomic design: atoms > molecules > organisms >
+                             templates > pages
+  Backend layering: handler -> service -> repository, small consumer-defined
+  interfaces, wiring in main.go.
+
+  # Principles
+  - SOLID throughout. Component kinds live in a registry (renderer + rules) so
+    new kinds are added without editing existing ones (open/closed).
+  - UI depends on ports (e.g. ScenarioStore), never on concrete stores.
+  - Atomic design for all UI; no domain logic inside components.
+
+  # Phasing
+  1. Editor (browser only): board template, terrain tags, elevation, component
+     placement, goals/rules, warnings, JSON save/load, PNG/print export.
+  2. Go API + Postgres + OAuth: publish and share scenarios by link.
+  3. Browse/search, likes, forks, LoS/reach/balance analysis overlays.
+
+  # IP
+  Fan project. Never commit or reproduce Bandai/Sunrise art, card scans,
+  rulebook text or logos. Use our own tiles/icons; describe mechanics in our
+  own words; refer to official cards/sets by name or number only.
+
+  # Repo
+  Personal GitHub: BintangDwitama/minovsky-maps (private). Commit with the
+  repo-local personal identity, never the machine's global work identity.
+
+rules:
+  proposal:
+    - State which side(s) a change touches (web, server, schema).
+    - Include a Non-goals section.
+  design:
+    - Changes to the scenario format must bump or justify schemaVersion and
+      describe migration of existing documents.
+    - Place new UI pieces at their atomic level (atom/molecule/organism/...).
+  tasks:
+    - Domain logic tasks come with unit tests.
