@@ -1,24 +1,22 @@
-import { BrandMark } from '../atoms/BrandMark';
 import { IconButton, Button } from '../atoms/Button';
 import { useEditor, useServices } from '../hooks/editorContext';
+import { Brand } from '../molecules/Brand';
 
 export interface ToolbarProps {
   onNew(): void;
   onOpen(): void;
   onSave(): void;
+  onShare(): void;
   onExport(): void;
 }
 
 /** The navy frame along the top: brand, file actions, history, scenario title. */
-export function Toolbar({ onNew, onOpen, onSave, onExport }: ToolbarProps) {
+export function Toolbar({ onNew, onOpen, onSave, onShare, onExport }: ToolbarProps) {
   const { session } = useServices();
   const { scenario, canUndo, canRedo, dirty, undoLabel, redoLabel } = useEditor();
   return (
     <header className="flex flex-wrap items-center gap-1 border-b-2 border-vent bg-frame px-2.5 py-1.5 text-frame-ink">
-      <span className="mr-3 flex items-center gap-2">
-        <BrandMark />
-        <span className="text-title font-bold font-stretch-condensed">Minovsky Maps</span>
-      </span>
+      <Brand />
       <Button variant="frame" icon="new" onClick={onNew}>
         New
       </Button>
@@ -32,6 +30,14 @@ export function Toolbar({ onNew, onOpen, onSave, onExport }: ToolbarProps) {
       </Button>
       <Button variant="frame" icon="save" onClick={onSave} title="Save (Ctrl+S)">
         Save
+      </Button>
+      <Button
+        variant="frame"
+        icon="link"
+        onClick={onShare}
+        title="Copy a link that opens this scenario for anyone"
+      >
+        Share
       </Button>
       <Button variant="frame" icon="image" onClick={onExport}>
         Export PNG

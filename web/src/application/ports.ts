@@ -28,3 +28,15 @@ export interface ImageExporter {
 export interface IdGenerator {
   next(): string;
 }
+
+/** Raw DEFLATE (no zlib/gzip header). */
+export interface Compressor {
+  deflate(data: Uint8Array): Uint8Array;
+  /** Throws on corrupt input or when the output would exceed `maxBytes`. */
+  inflate(data: Uint8Array, maxBytes: number): Uint8Array;
+}
+
+export interface Clipboard {
+  /** Resolves false (never rejects) when the clipboard can't be written. */
+  writeText(text: string): Promise<boolean>;
+}

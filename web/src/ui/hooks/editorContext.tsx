@@ -1,6 +1,14 @@
 import { createContext, useContext, useMemo, useSyncExternalStore, type ReactNode } from 'react';
 import type { EditorSession, EditorSnapshot } from '../../application/editorSession';
-import type { DraftStore, FileWriter, IdGenerator, ImageExporter, ScenarioFileReader } from '../../application/ports';
+import type {
+  Clipboard,
+  Compressor,
+  DraftStore,
+  FileWriter,
+  IdGenerator,
+  ImageExporter,
+  ScenarioFileReader,
+} from '../../application/ports';
 import type { UiState, UiStore } from '../../application/uiState';
 import { computeWarnings, type Warning } from '../../domain/warnings';
 
@@ -13,11 +21,19 @@ export interface EditorServices {
   readonly writer: FileWriter;
   readonly drafts: DraftStore;
   readonly exporter: ImageExporter;
+  readonly compressor: Compressor;
+  readonly clipboard: Clipboard;
 }
 
 const Ctx = createContext<EditorServices | null>(null);
 
-export function EditorProvider({ services, children }: { services: EditorServices; children: ReactNode }) {
+export function EditorProvider({
+  services,
+  children,
+}: {
+  services: EditorServices;
+  children: ReactNode;
+}) {
   return <Ctx.Provider value={services}>{children}</Ctx.Provider>;
 }
 

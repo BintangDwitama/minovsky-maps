@@ -23,6 +23,10 @@ const PATHS = {
   zoomOut: 'M10.5 4a6.5 6.5 0 1 1 0 13a6.5 6.5 0 0 1 0-13 M20 20l-4.5-4.5 M7.5 10.5h6',
   resize: 'M4 4h7 M4 4v7 M20 20h-7 M20 20v-7 M4 4l16 16',
   warning: 'M12 3l10 18H2z M12 10v5 M12 18v0.5',
+  link: 'M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1 M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1',
+  print: 'M7 9V3h10v6 M7 18H4v-8h16v8h-3 M7 14h10v7H7z',
+  download: 'M12 4v11 M7 10l5 5 5-5 M5 20h14',
+  edit: 'M4 20h4L19 9l-4-4L4 16z M13.5 6.5l4 4',
 } as const;
 
 export type IconName = keyof typeof PATHS;

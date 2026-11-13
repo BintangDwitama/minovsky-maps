@@ -6,7 +6,7 @@ import {
   MIN_BOARD_SIZE,
 } from '../../domain/scenario';
 import { Button } from '../atoms/Button';
-import { NumberInput } from '../atoms/inputs';
+import { NumberInput, TextInput } from '../atoms/inputs';
 import { Hint } from '../atoms/Text';
 import { FieldRow } from '../molecules/controls';
 
@@ -172,12 +172,59 @@ export function ErrorList({ intro, errors }: { intro: string; errors: readonly s
   return (
     <>
       <p>{intro}</p>
-      <ul className="mt-1.5 max-h-60 list-disc overflow-auto pl-4.5">
-        {errors.slice(0, 50).map((e, i) => (
-          <li key={i}>{e}</li>
-        ))}
-        {errors.length > 50 ? <li>…and {errors.length - 50} more</li> : null}
-      </ul>
+      {errors.length > 0 ? (
+        <ul className="mt-1.5 max-h-60 list-disc overflow-auto pl-4.5">
+          {errors.slice(0, 50).map((e, i) => (
+            <li key={i}>{e}</li>
+          ))}
+          {errors.length > 50 ? <li>…and {errors.length - 50} more</li> : null}
+        </ul>
+      ) : null}
     </>
+  );
+}
+
+export interface ShareLinkDialogProps {
+  link: string;
+  /** Whether the link already went to the clipboard. */
+  copied: boolean;
+  long: boolean;
+  onClose(): void;
+}
+
+/** Shows a share link: confirms the copy, or offers it for manual copying. */
+export function ShareLinkDialog({ link, copied, long, onClose }: ShareLinkDialogProps) {
+  return (
+    <DialogShell
+      title={copied ? 'Link copied' : 'Copy this link'}
+      onClose={onClose}
+      actions={
+        <Button variant="primary" onClick={onClose}>
+          Done
+        </Button>
+      }
+    >
+      <p>
+        {copied
+          ? 'Anyone with this link can view the scenario and edit their own copy.'
+          : 'Your browser blocked the clipboard. Select the link and copy it:'}
+      </p>
+      <TextInput
+        readOnly
+        aria-label="Share link"
+        value={link}
+        className="mt-2 font-mono text-xs"
+        onFocus={(e) => e.currentTarget.select()}
+      />
+      <Hint as="p" className="mb-0">
+        The scenario is stored in the link itself; nothing is uploaded.
+      </Hint>
+      {long ? (
+        <Hint as="p" className="mb-0 text-warning-text">
+          This link is {link.length.toLocaleString()} characters long and may not fit in one chat
+          message. You can share the saved .json file instead.
+        </Hint>
+      ) : null}
+    </DialogShell>
   );
 }

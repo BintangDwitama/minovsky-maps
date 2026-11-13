@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { removeComponentCmd, resizeBoardCmd, rotateCarrierCmd } from '../../application/commands';
 import { EditorSession } from '../../application/editorSession';
+import { createShareLink, editSharedCopy, openScenarioLink } from '../../application/shareLink';
 import { UiStore } from '../../application/uiState';
 import {
   exportPng,
@@ -15,13 +16,17 @@ import {
 } from '../../application/useCases';
 import { planResize } from '../../domain/operations';
 import { createScenario, rectangleSize, type Scenario } from '../../domain/scenario';
+import { BrowserClipboard } from '../../infrastructure/browserClipboard';
 import { BrowserFileReader, DownloadFileWriter } from '../../infrastructure/browserFiles';
+import { FflateCompressor } from '../../infrastructure/fflateCompressor';
 import { LocalStorageDraftStore } from '../../infrastructure/localStorageDraftStore';
 import { RandomIdGenerator } from '../../infrastructure/randomIds';
 import { SvgPngExporter } from '../../infrastructure/svgPngExporter';
 import { renderBoardSvg } from '../export/renderBoardSvg';
 import { EditorProvider, type EditorServices, useEditor } from '../hooks/editorContext';
-import { ConfirmDialog, ErrorList, NewScenarioDialog } from '../organisms/dialogs';
+import { LINK_FAILURE } from '../linkMessages';
+import { ConfirmDialog, ErrorList, NewScenarioDialog, ShareLinkDialog } from '../organisms/dialogs';
+import { appAddress, navigate, replaceHashSilently, viewHash } from '../router';
 import { GoalsEditor } from '../organisms/GoalsEditor';
 import { HexBoard } from '../organisms/HexBoard';
 import { ScenarioInspector } from '../organisms/ScenarioInspector';
@@ -41,13 +46,20 @@ const buildServices = (): EditorServices => ({
   writer: new DownloadFileWriter(),
   drafts: new LocalStorageDraftStore(),
   exporter: new SvgPngExporter(renderBoardSvg),
+  compressor: new FflateCompressor(),
+  clipboard: new BrowserClipboard(),
 });
 
-export function EditorPage() {
+export interface EditorPageProps {
+  /** A share link (`<codec>.<payload>`) to open as an unsaved copy ("Edit a copy"). */
+  importLink?: string | null;
+}
+
+export function EditorPage({ importLink = null }: EditorPageProps) {
   const [services] = useState(buildServices);
   return (
     <EditorProvider services={services}>
-      <Editor services={services} />
+      <Editor services={services} importLink={importLink} />
     </EditorProvider>
   );
 }
@@ -59,19 +71,28 @@ type DialogState =
   | { kind: 'confirm-resize'; width: number; height: number; removed: number }
   | { kind: 'unsaved'; proceed: () => void }
   | { kind: 'draft'; draft: Scenario }
+  | { kind: 'share'; link: string; copied: boolean; long: boolean }
+  | { kind: 'replace-with-shared'; scenario: Scenario; link: string }
   | { kind: 'errors'; title: string; intro: string; errors: string[] };
 
 const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
 
-function Editor({ services }: { services: EditorServices }) {
-  const { session, ui, reader, writer, drafts, exporter } = services;
+function Editor({ services, importLink }: { services: EditorServices; importLink: string | null }) {
+  const { session, ui, reader, writer, drafts, exporter, compressor, clipboard } = services;
   const { dirty } = useEditor();
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
   const close = useCallback(() => setDialog({ kind: 'none' }), []);
 
   const resetView = useCallback(() => {
-    ui.patch({ selectedId: null, highlight: [], hover: null, zoom: 1, pan: { x: 0, y: 0 }, message: null });
+    ui.patch({
+      selectedId: null,
+      highlight: [],
+      hover: null,
+      zoom: 1,
+      pan: { x: 0, y: 0 },
+      message: null,
+    });
   }, [ui]);
 
   const report = useCallback((r: UseCaseResult, title: string, intro: string) => {
@@ -106,24 +127,80 @@ function Editor({ services }: { services: EditorServices }) {
     session.commit();
     report(await saveScenario(session, writer, drafts), "Can't save yet", 'Fix these first:');
   }, [session, writer, drafts, report]);
-  const onExport = async () => report(await exportPng(session, exporter, writer), 'Export failed', 'The image could not be created:');
+  const onExport = async () =>
+    report(
+      await exportPng(session, exporter, writer),
+      'Export failed',
+      'The image could not be created:',
+    );
+  const onShare = async () => {
+    session.commit();
+    const r = createShareLink(session.scenario, appAddress(), compressor);
+    if (!r.ok) {
+      setDialog({
+        kind: 'errors',
+        title: "Can't share yet",
+        intro: 'Fix these first:',
+        errors: r.errors,
+      });
+      return;
+    }
+    const copied = await clipboard.writeText(r.link);
+    setDialog({ kind: 'share', link: r.link, copied, long: r.long });
+  };
 
-  const onResizeRequest = () => setDialog({ kind: 'resize', initial: rectangleSize(session.scenario) ?? undefined });
+  const onResizeRequest = () =>
+    setDialog({ kind: 'resize', initial: rectangleSize(session.scenario) ?? undefined });
   const applyResize = (width: number, height: number) => {
     session.execute(resizeBoardCmd(width, height));
     ui.patch({ highlight: [] });
-    if (ui.current.selectedId && !session.scenario.components.some((c) => c.id === ui.current.selectedId)) ui.select(null);
+    if (
+      ui.current.selectedId &&
+      !session.scenario.components.some((c) => c.id === ui.current.selectedId)
+    )
+      ui.select(null);
     close();
   };
 
-  const requestLabel = useCallback((kindLabel: string) => window.prompt(`Label for this ${kindLabel.toLowerCase()}:`), []);
+  const requestLabel = useCallback(
+    (kindLabel: string) => window.prompt(`Label for this ${kindLabel.toLowerCase()}:`),
+    [],
+  );
 
-  /* ---- draft restore + autosave ---- */
+  /* ---- draft restore + autosave (an "Edit a copy" import handles the draft itself) ---- */
+  const importedAtMount = useRef(importLink !== null);
   useEffect(() => {
-    const draft = findDraft(drafts);
-    if (draft) setDialog({ kind: 'draft', draft });
+    if (!importedAtMount.current) {
+      const draft = findDraft(drafts);
+      if (draft) setDialog({ kind: 'draft', draft });
+    }
     return startDraftAutosave(session, drafts);
   }, [session, drafts]);
+
+  /* ---- "Edit a copy" from a shared scenario ---- */
+  const handledImport = useRef<string | null>(null);
+  useEffect(() => {
+    if (!importLink || handledImport.current === importLink) return;
+    handledImport.current = importLink;
+    replaceHashSilently('#/');
+    const r = openScenarioLink(importLink, compressor);
+    if (!r.ok) {
+      const msg = LINK_FAILURE[r.reason];
+      setDialog({
+        kind: 'errors',
+        title: msg.title,
+        intro: msg.body,
+        errors: r.reason === 'invalid' ? r.errors : [],
+      });
+      return;
+    }
+    if (session.getSnapshot().dirty || findDraft(drafts)) {
+      setDialog({ kind: 'replace-with-shared', scenario: r.scenario, link: importLink });
+    } else {
+      editSharedCopy(session, r.scenario);
+      resetView();
+    }
+  }, [importLink, compressor, session, drafts, resetView]);
 
   /* ---- leaving the page with unsaved changes ---- */
   useEffect(() => {
@@ -182,7 +259,15 @@ function Editor({ services }: { services: EditorServices }) {
   return (
     <EditorLayout
       onFileDrop={onDrop}
-      toolbar={<Toolbar onNew={onNew} onOpen={onOpen} onSave={() => void onSave()} onExport={() => void onExport()} />}
+      toolbar={
+        <Toolbar
+          onNew={onNew}
+          onOpen={onOpen}
+          onSave={() => void onSave()}
+          onShare={() => void onShare()}
+          onExport={() => void onExport()}
+        />
+      }
       left={
         <>
           <ToolPalette />
@@ -220,7 +305,8 @@ function Editor({ services }: { services: EditorServices }) {
               initial={dialog.initial}
               onCancel={close}
               onSubmit={({ width, height }) => {
-                const removed = planResize(session.scenario, width, height).removedComponents.length;
+                const removed = planResize(session.scenario, width, height).removedComponents
+                  .length;
                 if (removed > 0) setDialog({ kind: 'confirm-resize', width, height, removed });
                 else applyResize(width, height);
               }}
@@ -270,12 +356,48 @@ function Editor({ services }: { services: EditorServices }) {
                 close();
               }}
             >
-              You have unsaved work from a previous session: <strong>{dialog.draft.meta.name}</strong>.
+              You have unsaved work from a previous session:{' '}
+              <strong>{dialog.draft.meta.name}</strong>.
+            </ConfirmDialog>
+          ) : null}
+
+          {dialog.kind === 'share' ? (
+            <ShareLinkDialog
+              link={dialog.link}
+              copied={dialog.copied}
+              long={dialog.long}
+              onClose={close}
+            />
+          ) : null}
+
+          {dialog.kind === 'replace-with-shared' ? (
+            <ConfirmDialog
+              title="Replace your unsaved work?"
+              danger
+              confirmLabel="Open the shared copy"
+              cancelLabel="Keep my work"
+              onCancel={() => {
+                close();
+                navigate(viewHash(dialog.link));
+              }}
+              onConfirm={() => {
+                editSharedCopy(session, dialog.scenario);
+                resetView();
+                close();
+              }}
+            >
+              You have unsaved changes in the editor. Opening{' '}
+              <strong>{dialog.scenario.meta.name}</strong> replaces them.
             </ConfirmDialog>
           ) : null}
 
           {dialog.kind === 'errors' ? (
-            <ConfirmDialog title={dialog.title} cancelLabel={null} onCancel={close} onConfirm={close}>
+            <ConfirmDialog
+              title={dialog.title}
+              cancelLabel={null}
+              onCancel={close}
+              onConfirm={close}
+            >
               <ErrorList intro={dialog.intro} errors={dialog.errors} />
             </ConfirmDialog>
           ) : null}

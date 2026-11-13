@@ -135,3 +135,27 @@
     scrollbar-color: var(--border) transparent;
   }
 }
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm;
+  }
+
+  :root {
+    /* native controls (checkboxes) must print light even when the screen is dark */
+    color-scheme: light;
+  }
+
+  html,
+  body,
+  #root {
+    height: auto;
+    background: #ffffff;
+  }
+
+  /* keep board colours and checklist boxes when "background graphics" is off */
+  * {
+    print-color-adjust: exact;
+  }
+}

@@ -8,6 +8,14 @@ import type { Component, ComponentKind, Owner } from '../scenario';
 export interface ComponentKindDef {
   readonly kind: ComponentKind;
   readonly label: string;
+  /** Lower-case plural for counts, e.g. "2 bases". */
+  readonly plural: string;
+  /**
+   * Kind-specific fields stored in share links, in this fixed order (after kind and hex).
+   * Never reorder or remove entries: links already shared depend on it; append only.
+   * Kinds with a single allowed owner omit owner (it is implied).
+   */
+  readonly compactFields: readonly string[];
   readonly allowedOwners: readonly Owner[];
   readonly requiresLabel: boolean;
   /** Hexes occupied by a component of this kind. */
@@ -37,7 +45,10 @@ const side = (p: PlacementParams): 'A' | 'B' => (p.owner === 'B' ? 'B' : 'A');
 const anyOwner = (p: PlacementParams): Owner => p.owner ?? 'neutral';
 const withNote = (p: PlacementParams) => (p.note ? { note: p.note } : {});
 
-export const carrierHexes = (middle: Axial, facing: number): { front: Axial; middle: Axial; back: Axial } => {
+export const carrierHexes = (
+  middle: Axial,
+  facing: number,
+): { front: Axial; middle: Axial; back: Axial } => {
   const d: Direction = toDirection(facing);
   return { front: neighbor(middle, d), middle, back: neighbor(middle, opposite(d)) };
 };
@@ -46,6 +57,8 @@ const defs: ComponentKindDef[] = [
   {
     kind: 'base',
     label: 'Base',
+    plural: 'bases',
+    compactFields: ['owner'],
     allowedOwners: SIDES,
     requiresLabel: false,
     footprint: single,
@@ -54,6 +67,8 @@ const defs: ComponentKindDef[] = [
   {
     kind: 'carrier',
     label: 'Carrier',
+    plural: 'carriers',
+    compactFields: ['owner', 'facing'],
     allowedOwners: SIDES,
     requiresLabel: false,
     footprint: (c) => {
@@ -72,6 +87,8 @@ const defs: ComponentKindDef[] = [
   {
     kind: 'garrison',
     label: 'Garrison',
+    plural: 'garrisons',
+    compactFields: ['owner'],
     allowedOwners: SIDES,
     requiresLabel: false,
     footprint: single,
@@ -80,6 +97,8 @@ const defs: ComponentKindDef[] = [
   {
     kind: 'upgrade',
     label: 'Upgrade',
+    plural: 'upgrades',
+    compactFields: ['upgradeType'],
     allowedOwners: NEUTRAL,
     requiresLabel: false,
     footprint: single,
@@ -94,6 +113,8 @@ const defs: ComponentKindDef[] = [
   {
     kind: 'energy',
     label: 'Energy',
+    plural: 'energy',
+    compactFields: [],
     allowedOwners: NEUTRAL,
     requiresLabel: false,
     footprint: single,
@@ -102,6 +123,8 @@ const defs: ComponentKindDef[] = [
   {
     kind: 'objective',
     label: 'Objective',
+    plural: 'objectives',
+    compactFields: ['objectiveType', 'label'],
     allowedOwners: NEUTRAL,
     requiresLabel: false,
     footprint: single,
@@ -117,6 +140,8 @@ const defs: ComponentKindDef[] = [
   {
     kind: 'token',
     label: 'Scenario token',
+    plural: 'scenario tokens',
+    compactFields: ['owner', 'label', 'note'],
     allowedOwners: ANY,
     requiresLabel: true,
     footprint: single,
@@ -132,6 +157,8 @@ const defs: ComponentKindDef[] = [
   {
     kind: 'structure',
     label: 'Structure',
+    plural: 'structures',
+    compactFields: ['owner', 'label', 'note'],
     allowedOwners: ANY,
     requiresLabel: true,
     footprint: single,

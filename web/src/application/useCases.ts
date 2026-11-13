@@ -75,18 +75,33 @@ export const saveScenario = async (
   return { ok: true };
 };
 
-export const exportPng = async (
-  session: EditorSession,
+/** Render any scenario to PNG and hand it to the user. */
+export const exportScenarioPng = async (
+  s: Scenario,
   exporter: ImageExporter,
   writer: FileWriter,
 ): Promise<UseCaseResult> => {
   try {
-    const png = await exporter.renderPng(session.scenario, PNG_MIN_LONG_SIDE);
-    await writer.write(imageFileName(session.scenario), png);
+    const png = await exporter.renderPng(s, PNG_MIN_LONG_SIDE);
+    await writer.write(imageFileName(s), png);
     return { ok: true };
   } catch (e) {
     return { ok: false, errors: [`Export failed: ${(e as Error).message}`] };
   }
+};
+
+export const exportPng = (
+  session: EditorSession,
+  exporter: ImageExporter,
+  writer: FileWriter,
+): Promise<UseCaseResult> => exportScenarioPng(session.scenario, exporter, writer);
+
+/** Download a scenario file without touching any editor session (e.g. from the sheet). */
+export const downloadScenarioFile = async (s: Scenario, writer: FileWriter): Promise<void> => {
+  await writer.write(
+    scenarioFileName(s),
+    new Blob([serializeScenario(s)], { type: 'application/json' }),
+  );
 };
 
 /* ---------------- drafts ---------------- */
