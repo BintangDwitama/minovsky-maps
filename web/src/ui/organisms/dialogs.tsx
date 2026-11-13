@@ -35,13 +35,13 @@ export function DialogShell({ title, children, actions, onClose }: DialogShellPr
   }, [onClose]);
   return (
     <div
-      className="fixed inset-0 z-10 grid place-items-center bg-black/45"
+      className="fixed inset-0 z-40 grid place-items-center bg-black/45"
       onMouseDown={(e) => e.target === e.currentTarget && onClose()}
     >
       {/* drop-shadow sits on a wrapper: the chamfer clip would cut a box-shadow off */}
       <div className="drop-shadow-[0_10px_30px_rgba(0,0,0,0.4)]">
         <div
-          className="max-h-[calc(100vh-32px)] w-[min(440px,calc(100vw-32px))] overflow-auto bg-panel chamfer"
+          className="max-h-[calc(100dvh-16px)] w-[min(440px,calc(100vw-16px))] overflow-x-hidden overflow-y-auto overscroll-contain bg-panel chamfer"
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
@@ -55,7 +55,7 @@ export function DialogShell({ title, children, actions, onClose }: DialogShellPr
           </h2>
           <div className="p-4.5">
             <div className="mb-4">{children}</div>
-            <div className="flex justify-end gap-2">{actions}</div>
+            <div className="flex flex-wrap justify-end gap-2">{actions}</div>
           </div>
         </div>
       </div>

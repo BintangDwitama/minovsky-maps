@@ -16,7 +16,8 @@ const PENALTY_TEXT = {
 export function AnalysisPanel() {
   const { ui } = useServices();
   const { scenario } = useEditor();
-  const { tool, analysis: a } = useUi();
+  const { tool, analysis: a, lastPointer } = useUi();
+  const touch = lastPointer === 'touch';
   const result = useAnalysis(scenario, a);
   if (tool !== 'analyse') return null;
 
@@ -29,7 +30,7 @@ export function AnalysisPanel() {
       <p className="mb-3" data-testid="analysis-probe-text">
         {probe
           ? `Probe: Side ${a.side} unit on hex ${probe.col}, ${probe.row} (level ${result?.index.elevation(a.probe!) ?? 0}).`
-          : 'Click a hex to place a probe: a unit of the chosen side standing there.'}
+          : `${touch ? 'Tap' : 'Click'} a hex to place a probe: a unit of the chosen side standing there.`}
       </p>
 
       <FieldRow label="Side">
@@ -117,8 +118,11 @@ export function AnalysisPanel() {
       ) : null}
 
       <Hint as="p" className="mb-0">
-        Hover a hex to see the sight line. Only enemy Bases, Garrisons, Carriers and structures
-        block; neutral pieces follow each scenario’s own rules and are ignored here.
+        {touch
+          ? 'Tap a hex to see the sight line; drag the probe to move it.'
+          : 'Hover a hex to see the sight line.'}{' '}
+        Only enemy Bases, Garrisons, Carriers and structures block; neutral pieces follow each
+        scenario’s own rules and are ignored here.
       </Hint>
     </PanelSection>
   );

@@ -52,7 +52,12 @@ export interface UiState {
   readonly zoom: number;
   readonly pan: { readonly x: number; readonly y: number };
   readonly analysis: AnalysisSettings;
+  /** Input used last on the board; picks touch or mouse wording for hints. */
+  readonly lastPointer: PointerKind;
 }
+
+/** Pen counts as mouse: it can hover. */
+export type PointerKind = 'mouse' | 'touch';
 
 export const initialUiState: UiState = {
   tool: 'select',
@@ -73,6 +78,7 @@ export const initialUiState: UiState = {
   zoom: 1,
   pan: { x: 0, y: 0 },
   analysis: initialAnalysis,
+  lastPointer: 'mouse',
 };
 
 export class UiStore extends Store<UiState> {
@@ -88,7 +94,13 @@ export class UiStore extends Store<UiState> {
     // leaving the Analyse tool removes the probe (overlays only exist while analysing)
     const analysis =
       tool === 'analyse' ? this.current.analysis : { ...this.current.analysis, probe: null };
-    this.patch({ tool, message: null, analysis });
+    // a touched hex stays "hovered" after the finger lifts; a new tool starts without one
+    const hover = this.current.lastPointer === 'touch' ? null : this.current.hover;
+    this.patch({ tool, message: null, analysis, hover });
+  }
+
+  setPointer(kind: PointerKind): void {
+    if (this.current.lastPointer !== kind) this.patch({ lastPointer: kind });
   }
 
   setAnalysis(p: Partial<AnalysisSettings>): void {

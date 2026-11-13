@@ -27,7 +27,12 @@ export function ToolButton({ icon, label, active, shortcut, onSelect }: ToolButt
       title={shortcut ? `${label} (${shortcut})` : label}
     >
       <span className="flex-1 text-left">{label}</span>
-      {shortcut ? <Kbd>{shortcut}</Kbd> : null}
+      {/* keyboard shortcuts mean nothing on a touch screen */}
+      {shortcut ? (
+        <span className="contents coarse:hidden">
+          <Kbd>{shortcut}</Kbd>
+        </span>
+      ) : null}
     </Button>
   );
 }
@@ -58,7 +63,7 @@ export function Segmented<T extends string>({
           key={o.value}
           type="button"
           className={cn(
-            'border-l border-border px-2.5 py-1 first:border-l-0 focus-visible:shadow-[inset_0_0_0_2px_var(--accent)] focus-visible:outline-none enabled:hover:bg-plate-hover disabled:cursor-default disabled:opacity-40',
+            'coarse:min-w-11focus-visible:shadow-[inset_0_0_0_2px_var(--accent)] border-l border-border px-2.5 py-1 first:border-l-0 focus-visible:outline-none enabled:hover:bg-plate-hover disabled:cursor-default disabled:opacity-40 coarse:min-h-11',
             o.value === value &&
               'border-accent bg-accent font-semibold text-accent-ink enabled:hover:bg-accent',
           )}

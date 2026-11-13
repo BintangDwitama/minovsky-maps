@@ -80,7 +80,10 @@ export function ReportDialog({ scenarioName, onSend, onClose }: ReportDialogProp
       <fieldset className="mb-3" aria-required="true">
         <legend className="mb-1 text-xs text-muted">Reason (required)</legend>
         {REPORT_REASONS.map((r) => (
-          <label key={r.value} className="flex cursor-pointer items-center gap-2 py-0.5">
+          <label
+            key={r.value}
+            className="flex cursor-pointer items-center gap-2 py-0.5 coarse:min-h-11 coarse:gap-3"
+          >
             <input
               type="radio"
               name={`${ids}-reason`}
@@ -90,7 +93,7 @@ export function ReportDialog({ scenarioName, onSend, onClose }: ReportDialogProp
                 setReason(r.value);
                 setState({ kind: 'form', error: null });
               }}
-              className="size-4 accent-(--accent)"
+              className="size-4 accent-(--accent) coarse:size-5"
             />
             {r.label}
           </label>

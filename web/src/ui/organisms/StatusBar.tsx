@@ -17,6 +17,18 @@ const TOOL_HINT: Record<string, string> = {
   analyse: 'Click a hex to place a probe, then hover other hexes to check line of sight and reach.',
 };
 
+const TOUCH_HINT: Record<string, string> = {
+  select: 'Tap a component to select, drag it to move. Two fingers pan and pinch to zoom.',
+  terrain: 'Tap or drag to paint. Starting on a painted hex removes instead.',
+  erase: 'Tap or drag to clear all terrain from hexes.',
+  raise: 'Tap or drag to add one pillar per hex.',
+  lower: 'Tap or drag to remove one pillar per hex.',
+  setLevel: 'Tap or drag to set hexes to the chosen level.',
+  place: 'Tap a hex to place the selected component.',
+  analyse:
+    'Tap a hex to place a probe, then tap other hexes to check them. Drag the probe to move it.',
+};
+
 const at = (h: Axial) => {
   const { col, row } = axialToOffset(h);
   return `${col}, ${row}`;
@@ -25,7 +37,8 @@ const at = (h: Axial) => {
 export function StatusBar() {
   const { ui } = useServices();
   const { scenario } = useEditor();
-  const { hover, message, tool, zoom, analysis } = useUi();
+  const { hover, message, tool, zoom, analysis, lastPointer } = useUi();
+  const hints = lastPointer === 'touch' ? TOUCH_HINT : TOOL_HINT;
   const result = useAnalysis(scenario, analysis);
 
   // Analyse tool: explain the hovered hex (sight line and reach)
@@ -76,24 +89,32 @@ export function StatusBar() {
 
   return (
     <footer
-      className="flex min-h-6.5 items-center gap-4 bg-frame px-2.5 py-1 text-xs text-frame-muted"
+      className="flex min-h-6.5 items-center gap-4 bg-frame px-2.5 py-1 text-xs text-frame-muted max-[900px]:h-11 max-[900px]:gap-3 max-[900px]:overflow-hidden"
       aria-live="polite"
       data-testid="statusbar"
     >
-      <span className="min-w-40 font-semibold text-frame-ink tabular-nums">{hoverText || '—'}</span>
+      <span className="min-w-40 font-semibold text-frame-ink tabular-nums max-[900px]:min-w-0 max-[900px]:flex-none">
+        {hoverText || '—'}
+      </span>
       {message ? (
-        <span className="font-semibold text-vent" data-testid="status-message">
+        <span
+          className="font-semibold text-vent max-[900px]:line-clamp-2"
+          data-testid="status-message"
+        >
           {message}
         </span>
       ) : analysisText ? (
-        <span className="font-semibold text-frame-ink" data-testid="analysis-status">
+        <span
+          className="font-semibold text-frame-ink max-[900px]:line-clamp-2"
+          data-testid="analysis-status"
+        >
           {analysisText}
         </span>
       ) : (
-        <span>{TOOL_HINT[tool]}</span>
+        <span className="max-[900px]:line-clamp-2">{hints[tool]}</span>
       )}
-      <span className="flex-1" />
-      <span>{Math.round(zoom * 100)}%</span>
+      <span className="flex-1 max-[900px]:hidden" />
+      <span className="max-[900px]:hidden">{Math.round(zoom * 100)}%</span>
     </footer>
   );
 }

@@ -1,4 +1,5 @@
-import type { ToolId } from '../../application/uiState';
+import type { ToolId, UiState } from '../../application/uiState';
+import { TERRAIN_LABELS } from '../theme';
 import { COMPONENT_KINDS, kindDef } from '../../domain/components/registry';
 import { MAX_ELEVATION, TERRAIN_TAGS } from '../../domain/scenario';
 import { TextInput, Select } from '../atoms/inputs';
@@ -25,6 +26,31 @@ export const TOOL_SHORTCUTS: Partial<Record<string, ToolId>> = {
   p: 'place',
   a: 'analyse',
 };
+
+const TOOL_NAMES: Record<ToolId, string> = {
+  select: 'Select / move',
+  terrain: 'Paint terrain',
+  erase: 'Erase terrain',
+  raise: 'Raise +1',
+  lower: 'Lower −1',
+  setLevel: 'Set level',
+  place: 'Place',
+  analyse: 'Sight & reach',
+};
+
+/** Short name of the current tool, e.g. "Paint: Water" or "Place: Garrison". */
+export function toolName(ui: Pick<UiState, 'tool' | 'terrainTag' | 'level' | 'palette'>): string {
+  switch (ui.tool) {
+    case 'terrain':
+      return `Paint: ${TERRAIN_LABELS[ui.terrainTag]}`;
+    case 'setLevel':
+      return `Set level ${ui.level}`;
+    case 'place':
+      return `Place: ${kindDef(ui.palette.kind).label}`;
+    default:
+      return TOOL_NAMES[ui.tool];
+  }
+}
 
 /** Board tools: select, terrain painting and elevation. */
 export function ToolPalette() {

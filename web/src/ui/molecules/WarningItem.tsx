@@ -14,7 +14,7 @@ export function WarningItem({ code, message, active, locatable, onSelect }: Warn
     <button
       type="button"
       className={cn(
-        'relative mb-1.5 block w-full bg-warning-bg py-1.5 pr-2 pl-4 text-left text-ui text-warning-text chamfer-sm focus-visible:shadow-[inset_0_0_0_2px_var(--accent)] focus-visible:outline-none enabled:hover:brightness-[0.97]',
+        'relative mb-1.5 block w-full bg-warning-bg py-1.5 pr-2 pl-4 text-left text-ui text-warning-text chamfer-sm focus-visible:shadow-[inset_0_0_0_2px_var(--accent)] focus-visible:outline-none enabled:hover:brightness-[0.97] coarse:min-h-11',
         active && 'shadow-[inset_0_0_0_2px_var(--warning-text)]',
       )}
       aria-pressed={active}

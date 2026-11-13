@@ -18,7 +18,7 @@ export interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
  * keyboard focus is drawn as an inset ring instead.
  */
 const BASE =
-  'chamfer-sm inline-flex items-center gap-1.5 whitespace-nowrap bg-panel-2 px-2.5 py-1.5 leading-[1.2] shadow-[inset_0_-2px_0_var(--plate-edge)] focus-visible:shadow-[inset_0_0_0_2px_var(--accent)] focus-visible:outline-none disabled:cursor-default disabled:opacity-45';
+  'chamfer-sm inline-flex items-center gap-1.5 whitespace-nowrap bg-panel-2 px-2.5 py-1.5 leading-[1.2] shadow-[inset_0_-2px_0_var(--plate-edge)] focus-visible:shadow-[inset_0_0_0_2px_var(--accent)] focus-visible:outline-none disabled:cursor-default disabled:opacity-45 coarse:min-h-11 coarse:min-w-11';
 
 const VARIANT: Record<Variant, string> = {
   default: 'enabled:hover:bg-plate-hover',
@@ -67,7 +67,7 @@ export function IconButton({ icon, label, small, className, ...rest }: IconButto
   return (
     <Button
       small={small}
-      className={cn(!small && 'p-1.5', className)}
+      className={cn(!small && 'p-1.5', 'coarse:justify-center', className)}
       aria-label={label}
       title={label}
       {...rest}

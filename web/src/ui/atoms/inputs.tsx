@@ -3,7 +3,7 @@ import { cn } from '../cn';
 
 /** Inputs are square wells set into the plate (not chamfered: they read as screens). */
 const FIELD =
-  'w-full min-w-0 rounded-ui border border-border bg-field px-2 py-1.25 shadow-[inset_0_1px_2px_var(--plate-edge)] focus:border-accent';
+  'w-full min-w-0 rounded-ui border border-border bg-field px-2 py-1.25 shadow-[inset_0_1px_2px_var(--plate-edge)] focus:border-accent coarse:min-h-11';
 const INVALID = 'border-danger';
 
 const field = (invalid: boolean | undefined, extra?: string) =>
@@ -88,10 +88,10 @@ export interface CheckboxProps {
 
 export function Checkbox({ label, checked, onChange, hint, disabled }: CheckboxProps) {
   return (
-    <label className="mb-1.5 flex cursor-pointer items-start gap-2 has-disabled:cursor-default has-disabled:opacity-60">
+    <label className="mb-1.5 flex cursor-pointer items-start gap-2 has-disabled:cursor-default has-disabled:opacity-60 coarse:mb-0 coarse:min-h-11 coarse:items-center coarse:gap-3 coarse:py-1">
       <input
         type="checkbox"
-        className="mt-0.5 size-4 flex-none accent-(--accent)"
+        className="mt-0.5 size-4 flex-none accent-(--accent) coarse:mt-0 coarse:size-5"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}

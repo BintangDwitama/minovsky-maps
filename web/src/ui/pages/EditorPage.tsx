@@ -12,7 +12,7 @@ import {
   type PublishingResult,
 } from '../../application/publishing';
 import { createShareLink, editSharedCopy, openScenarioLink } from '../../application/shareLink';
-import { UiStore } from '../../application/uiState';
+import { initialUiState, UiStore } from '../../application/uiState';
 import {
   exportPng,
   findDraft,
@@ -38,7 +38,9 @@ import { LocalStoragePublicationStore } from '../../infrastructure/localStorageP
 import { RandomIdGenerator } from '../../infrastructure/randomIds';
 import { SvgPngExporter } from '../../infrastructure/svgPngExporter';
 import { renderBoardSvg } from '../export/renderBoardSvg';
-import { EditorProvider, type EditorServices, useEditor } from '../hooks/editorContext';
+import { EditorProvider, type EditorServices, useEditor, useUi } from '../hooks/editorContext';
+import { COMPACT_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
+import { SelectionBar } from '../organisms/SelectionBar';
 import { LINK_FAILURE } from '../linkMessages';
 import {
   BusyDialog,
@@ -65,7 +67,7 @@ import { AnalysisPanel } from '../organisms/AnalysisPanel';
 import { ScenarioInspector } from '../organisms/ScenarioInspector';
 import { ScenarioSettingsPanel } from '../organisms/ScenarioSettingsPanel';
 import { StatusBar } from '../organisms/StatusBar';
-import { ComponentPalette, TOOL_SHORTCUTS, ToolPalette } from '../organisms/ToolPalette';
+import { ComponentPalette, TOOL_SHORTCUTS, ToolPalette, toolName } from '../organisms/ToolPalette';
 import { Toolbar } from '../organisms/Toolbar';
 import { PillarCount, WarningsPanel } from '../organisms/WarningsPanel';
 import { EditorLayout } from '../templates/EditorLayout';
@@ -73,7 +75,11 @@ import { EditorLayout } from '../templates/EditorLayout';
 /** Composition root: builds concrete infrastructure and injects it through context. */
 const buildServices = (): EditorServices => ({
   session: new EditorSession(createScenario()),
-  ui: new UiStore(),
+  // touch screens start with touch wording in the hints, before the first touch
+  ui: new UiStore({
+    ...initialUiState,
+    lastPointer: window.matchMedia('(pointer: coarse)').matches ? 'touch' : 'mouse',
+  }),
   ids: new RandomIdGenerator(),
   reader: new BrowserFileReader(),
   writer: new DownloadFileWriter(),
@@ -132,6 +138,8 @@ function Editor({
   const { session, ui, reader, writer, drafts, exporter, compressor, clipboard } = services;
   const { publisher, publications } = services;
   const { dirty, publication } = useEditor();
+  const uiState = useUi();
+  const compact = useMediaQuery(COMPACT_QUERY);
   const publishMode =
     publication && publications.get(publication.id) ? ('update' as const) : ('publish' as const);
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
@@ -422,8 +430,13 @@ function Editor({
   return (
     <EditorLayout
       onFileDrop={onDrop}
+      compact={compact}
+      toolsDetail={toolName(uiState)}
+      drawerCloseKey={`${uiState.tool}|${uiState.palette.kind}|${uiState.terrainTag}`}
+      selectionBar={(openDetails) => <SelectionBar onDetails={openDetails} />}
       toolbar={
         <Toolbar
+          compact={compact}
           onNew={onNew}
           onOpen={onOpen}
           onSave={() => void onSave()}

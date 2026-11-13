@@ -27,7 +27,11 @@ export function SheetLayout({
   return (
     <div className="min-h-full bg-bg print:bg-white">
       <header className="flex flex-wrap items-center gap-1 border-b-2 border-vent bg-frame px-2.5 py-1.5 text-frame-ink print:hidden">
-        <a href="#/" className="rounded-ui focus-visible:outline-vent" title="Open the editor">
+        <a
+          href="#/"
+          className="rounded-ui focus-visible:outline-vent coarse:flex coarse:min-h-11 coarse:items-center"
+          title="Open the editor"
+        >
           <Brand />
         </a>
         <span className="flex-1" />

@@ -4,8 +4,11 @@ import type { ReactNode } from 'react';
 export function ChecklistItem({ children, detail }: { children: ReactNode; detail?: ReactNode }) {
   return (
     <li>
-      <label className="flex cursor-pointer items-start gap-2.5 py-1 has-checked:text-muted has-checked:line-through print:py-0.5">
-        <input type="checkbox" className="mt-0.5 size-4 flex-none accent-(--accent)" />
+      <label className="flex cursor-pointer items-start gap-2.5 py-1 has-checked:text-muted has-checked:line-through print:py-0.5 coarse:min-h-11 coarse:items-center coarse:gap-3 print:coarse:min-h-0">
+        <input
+          type="checkbox"
+          className="mt-0.5 size-4 flex-none accent-(--accent) coarse:mt-0 coarse:size-5 print:coarse:size-4"
+        />
         <span>
           {children}
           {detail ? (

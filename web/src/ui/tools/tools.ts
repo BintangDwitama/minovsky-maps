@@ -13,9 +13,9 @@ import {
 } from '../../application/commands';
 import type { EditorSession } from '../../application/editorSession';
 import type { IdGenerator } from '../../application/ports';
-import type { ToolId, UiStore } from '../../application/uiState';
+import type { PointerKind, ToolId, UiStore } from '../../application/uiState';
 import { kindDef } from '../../domain/components/registry';
-import { type Axial, hexKey } from '../../domain/hex';
+import { type Axial, hexEquals, hexKey } from '../../domain/hex';
 import { hasTag, type TagMode } from '../../domain/operations';
 import { buildIndex, componentsAt } from '../../domain/scenarioIndex';
 
@@ -25,14 +25,25 @@ export interface ToolContext {
   readonly ids: IdGenerator;
   /** Ask the user for a label (tokens/structures). Null = cancelled. */
   requestLabel(kindLabel: string): string | null;
+  /** Input of the current stroke (default mouse). */
+  readonly pointer?: PointerKind;
 }
 
+const isTouch = (ctx: ToolContext) => ctx.pointer === 'touch';
+
+/**
+ * A stroke is down, moves, up. HexBoard may cancel a stroke (a second finger landed): the tool
+ * must then leave no change and no history. On touch, a tool with `onTap` gets a tap (lift
+ * without moving) instead of a stroke; `onDown` returning 'pan' asks the board to pan instead.
+ */
 export interface Tool {
   readonly id: ToolId;
   readonly cursor: string;
-  onDown(hex: Axial, ctx: ToolContext): void;
+  onDown(hex: Axial, ctx: ToolContext): void | 'pan';
   onMove(hex: Axial, ctx: ToolContext): void;
   onUp(ctx: ToolContext): void;
+  onCancel(ctx: ToolContext): void;
+  onTap?(hex: Axial, ctx: ToolContext): void;
 }
 
 /** A tool that applies a per-hex action once per hex per stroke. */
@@ -62,6 +73,10 @@ const strokeTool = (
     onUp(ctx) {
       apply = null;
       ctx.session.commit();
+    },
+    onCancel(ctx) {
+      apply = null;
+      ctx.session.cancel();
     },
   };
 };
@@ -101,10 +116,8 @@ const setLevelTool = (): Tool =>
     return (hex, c) => void c.session.execute(setElevationCmd([hex], level));
   });
 
-const placeTool = (): Tool => ({
-  id: 'place',
-  cursor: 'copy',
-  onDown(hex, ctx) {
+const placeTool = (): Tool => {
+  const place = (hex: Axial, ctx: ToolContext) => {
     const p = ctx.ui.current.palette;
     const def = kindDef(p.kind);
     let label = p.label.trim();
@@ -132,10 +145,18 @@ const placeTool = (): Tool => ({
     } else {
       ctx.ui.flash(r.reason);
     }
-  },
-  onMove() {},
-  onUp() {},
-});
+  };
+  return {
+    id: 'place',
+    cursor: 'copy',
+    // touch places on lift (onTap), so a pinch never leaves a stray component; a drag pans
+    onDown: (hex, ctx) => (isTouch(ctx) ? 'pan' : place(hex, ctx)),
+    onTap: place,
+    onMove() {},
+    onUp() {},
+    onCancel() {},
+  };
+};
 
 const selectTool = (): Tool => {
   let dragging: { id: string; last: string } | null = null;
@@ -147,6 +168,8 @@ const selectTool = (): Tool => {
       const current = ctx.ui.current.selectedId;
       // keep the current selection if it is under the pointer (so it can be dragged), else topmost
       const target = here.find((c) => c.id === current) ?? here.at(-1) ?? null;
+      // touch: dragging empty space pans the board
+      if (!target && isTouch(ctx)) return 'pan';
       ctx.ui.select(target?.id ?? null);
       ctx.ui.patch({ highlight: [] });
       if (target) {
@@ -170,19 +193,66 @@ const selectTool = (): Tool => {
       dragging = null;
       ctx.session.commit();
     },
+    onCancel(ctx) {
+      dragging = null;
+      ctx.session.cancel();
+    },
+    onTap(hex, ctx) {
+      // a tap selects (or clears the selection on an empty hex); nothing moves
+      const here = componentsAt(buildIndex(ctx.session.scenario), hex);
+      const current = ctx.ui.current.selectedId;
+      ctx.ui.select((here.find((c) => c.id === current) ?? here.at(-1))?.id ?? null);
+      ctx.ui.patch({ highlight: [] });
+    },
   };
 };
 
-/** Places the analysis probe. Touches UI state only: never the scenario or its history. */
-const analyseTool = (): Tool => ({
-  id: 'analyse',
-  cursor: 'crosshair',
-  onDown(hex, ctx) {
-    ctx.ui.setAnalysis({ probe: hex });
-  },
-  onMove() {},
-  onUp() {},
-});
+/**
+ * Places the analysis probe. Touches UI state only: never the scenario or its history.
+ * Mouse: click places or moves the probe (hover inspects). Touch: a tap places the probe when there
+ * is none and otherwise inspects the tapped hex; dragging the probe moves it.
+ */
+const analyseTool = (): Tool => {
+  let draggingProbe = false;
+  return {
+    id: 'analyse',
+    cursor: 'crosshair',
+    onDown(hex, ctx) {
+      if (!isTouch(ctx)) {
+        ctx.ui.setAnalysis({ probe: hex });
+        return;
+      }
+      const probe = ctx.ui.current.analysis.probe;
+      if (probe && hexEquals(probe, hex)) {
+        draggingProbe = true;
+        ctx.ui.setHover(null);
+        return;
+      }
+      return 'pan';
+    },
+    onMove(hex, ctx) {
+      if (!draggingProbe) return;
+      ctx.ui.setAnalysis({ probe: hex });
+      ctx.ui.setHover(null);
+    },
+    onUp() {
+      draggingProbe = false;
+    },
+    onCancel() {
+      draggingProbe = false;
+    },
+    onTap(hex, ctx) {
+      const probe = ctx.ui.current.analysis.probe;
+      if (!probe) {
+        ctx.ui.setAnalysis({ probe: hex });
+        ctx.ui.setHover(null);
+      } else {
+        // inspect: keep the tapped hex as the "hovered" one after the finger lifts
+        ctx.ui.setHover(hexEquals(probe, hex) ? null : hex);
+      }
+    },
+  };
+};
 
 export const createTools = (): Record<ToolId, Tool> => ({
   analyse: analyseTool(),
