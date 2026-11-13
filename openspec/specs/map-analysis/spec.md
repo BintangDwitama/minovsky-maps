@@ -4,11 +4,15 @@
 Testing a map in the editor: line of sight and movement reach from a hypothetical unit (the probe), following the core rules, shown as overlays that never change the scenario.
 ## Requirements
 ### Requirement: Probe placement
-The editor SHALL provide an Analyse tool. Clicking a board hex with it SHALL place a probe: a hypothetical single-hex unit belonging to the chosen side (Side A or Side B) at that hex, at the hex's elevation. Clicking another hex SHALL move the probe; pressing Escape or leaving the tool SHALL clear it. The probe and all analysis settings SHALL NOT be stored in the scenario, saved files, PNG export, share links or published scenarios, and SHALL NOT create undo history.
+The editor SHALL provide an Analyse tool. Clicking a board hex with it SHALL place a probe: a hypothetical single-hex unit belonging to the chosen side (Side A or Side B) at that hex, at the hex's elevation. With a mouse, clicking another hex SHALL move the probe. On touch, tapping a hex while no probe is placed SHALL place it. While a probe is placed, tapping SHALL inspect (see Inspect a sight line), and dragging the probe with one finger SHALL move it to the hex where the finger lifts. Pressing Escape or leaving the tool SHALL clear the probe. The probe and all analysis settings SHALL NOT be stored in the scenario, saved files, PNG export, share links or published scenarios, and SHALL NOT create undo history.
 
 #### Scenario: Place a probe
 - **WHEN** the user picks the Analyse tool, chooses Side A and clicks hex (7, 4) at elevation 2
 - **THEN** a Side A probe is shown on (7, 4) at elevation 2 and the overlays are computed from it
+
+#### Scenario: Move the probe by touch
+- **WHEN** a probe is on (7, 4) and the user drags it with one finger to (5, 6)
+- **THEN** the probe stands on (5, 6) and the overlays are recomputed from there
 
 #### Scenario: Nothing is saved
 - **WHEN** the user places a probe and then saves the scenario
@@ -47,11 +51,15 @@ Hexes adjacent to the probe SHALL always be visible. When the line passes exactl
 - **THEN** the target hex is visible
 
 ### Requirement: Inspect a sight line
-While a probe is placed, hovering a hex SHALL draw the sight line from the probe to that hex and state whether it is clear. When blocked, the first blocking hex along the line SHALL be outlined and the reason given (terrain at a stated elevation, or an enemy piece).
+While a probe is placed, hovering a hex with a mouse, or tapping a hex other than the probe's on touch, SHALL draw the sight line from the probe to that hex and state whether it is clear. A tapped hex SHALL stay inspected after the finger lifts until another hex is tapped or the probe moves. When blocked, the first blocking hex along the line SHALL be outlined and the reason given (terrain at a stated elevation, or an enemy piece).
 
 #### Scenario: Blocked by terrain
 - **WHEN** the user hovers a hex hidden behind a level 2 ridge
 - **THEN** the sight line is drawn as blocked, the ridge hex is outlined, and the status reads that the line is blocked by terrain at level 2
+
+#### Scenario: Inspect by tapping
+- **WHEN** a probe is placed and the user taps a hex hidden behind a level 2 ridge on a touch screen
+- **THEN** the probe stays where it was, the blocked sight line and outlined ridge stay shown after the finger lifts, and the status reads that the line is blocked by terrain at level 2
 
 ### Requirement: Movement reach
 The reach overlay SHALL mark every hex the probe could end a move on within its movement allowance, with the movement it costs. Allowance SHALL be the chosen move value (default 3, the Advance action) plus Speed, minus 1 when the probe starts in water, minus 1 when it starts in a debris field, and minus 1 when Engaged; never below 0. Each step into an adjacent hex SHALL cost 1 plus 1 per level climbed above the reference elevation; descending SHALL be free. The reference elevation SHALL be the current hex's elevation, except when the probe starts above ground level (jumping), when it SHALL be the higher of the starting elevation and the current hex's elevation. The probe SHALL NOT enter impassable hexes unless Hover is on, SHALL NOT pass through hexes with enemy pieces (except, when jumping, enemy pieces below the reference elevation), MAY pass through allied pieces, and SHALL NOT end on any hex holding a base, garrison, carrier or structure, or an impassable hex. The probe's own hex SHALL NOT count as reachable.
@@ -85,3 +93,4 @@ While the Analyse tool is active, the right panel SHALL show the probe's side an
 #### Scenario: Reach mode
 - **WHEN** the user switches the mode to reach
 - **THEN** reachable hexes are tinted and labelled with their cost, the line-of-sight shading is hidden, and the panel shows the reachable count
+

@@ -41,4 +41,4 @@
 - [x] 6.1 `npm run lint`, `typecheck`, `test` and `build` in `web/` pass
 - [x] 6.2 Re-run the phone/tablet probe: page doesn't scroll at 390 × 664, board at least 400 px tall, all visible controls at least 44 px on touch, dialogs fit 360 px, desktop unchanged
 - [x] 6.3 Probe gestures with CDP touch events: one-finger paint is one undo step; a second finger cancels a stroke; pinch zooms around the midpoint; Analyse tap inspects and drag moves the probe; the sheet's Enlarge board pinches
-- [ ] 6.4 Hand check on a real phone after deploy (constants feel right, no accidental placements)
+- [x] 6.4 Hand check on a real phone after deploy (constants feel right, no accidental placements)
