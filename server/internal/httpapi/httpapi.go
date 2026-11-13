@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/BintangDwitama/minovsky-maps/server/internal/accounts"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/publishing"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/reports"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/scenario"
@@ -22,11 +23,24 @@ import (
 // MaxBodyBytes caps request bodies (a large 40×40 scenario is well under this).
 const MaxBodyBytes = 64 << 10
 
-// Publisher is what the handlers need from the service layer.
+// Publisher is what the handlers need from the publishing service.
 type Publisher interface {
-	Publish(ctx context.Context, doc []byte) (publishing.Created, error)
+	Publish(ctx context.Context, ownerID int64, doc []byte) (publishing.Created, error)
 	Get(ctx context.Context, id string) (publishing.Published, error)
-	Update(ctx context.Context, id, token string, doc []byte) (time.Time, error)
+	Update(ctx context.Context, id string, c publishing.Credential, doc []byte) (time.Time, error)
+	Delete(ctx context.Context, id string, ownerID int64) error
+	Claim(ctx context.Context, ownerID int64, items []publishing.TokenClaim) ([]string, error)
+	ListOwned(ctx context.Context, ownerID int64) ([]publishing.Summary, error)
+}
+
+// Accounts is what the handlers need from the accounts service (sign-in and sessions).
+type Accounts interface {
+	StartLogin(ctx context.Context, returnTo string) (authURL, state string, err error)
+	FinishLogin(ctx context.Context, cookieState, queryState, code string) (accounts.Finished, error)
+	SessionAccount(ctx context.Context, token string) (accounts.Account, error)
+	SignOut(ctx context.Context, token string) error
+	Rename(ctx context.Context, accountID int64, name string) (accounts.Account, error)
+	Delete(ctx context.Context, accountID int64) error
 }
 
 // Pinger checks the database for /api/health.
@@ -58,6 +72,9 @@ type Options struct {
 	Bot BotCheck
 	// Reports handles POST /api/reports; nil answers 503.
 	Reports Reporter
+	// Accounts handles sign-in and sessions; nil means sign-in is not configured (nobody can
+	// publish, /api/me answers signed out).
+	Accounts Accounts
 }
 
 // New returns the API handler.
@@ -75,12 +92,13 @@ func New(svc Publisher, db Pinger, opt Options) http.Handler {
 		opt.Logger = slog.Default()
 	}
 	a := &api{
-		svc:     svc,
-		db:      db,
-		log:     opt.Logger,
-		writes:  newLimiter(opt.WritesPerMinute, opt.WriteBurst, opt.Now),
-		bot:     opt.Bot,
-		reports: opt.Reports,
+		svc:      svc,
+		db:       db,
+		log:      opt.Logger,
+		writes:   newLimiter(opt.WritesPerMinute, opt.WriteBurst, opt.Now),
+		bot:      opt.Bot,
+		reports:  opt.Reports,
+		accounts: opt.Accounts,
 	}
 
 	mux := http.NewServeMux()
@@ -88,7 +106,16 @@ func New(svc Publisher, db Pinger, opt Options) http.Handler {
 	mux.HandleFunc("POST /api/scenarios", a.limited("write", a.publish))
 	mux.HandleFunc("GET /api/scenarios/{id}", a.get)
 	mux.HandleFunc("PUT /api/scenarios/{id}", a.limited("write", a.update))
+	mux.HandleFunc("DELETE /api/scenarios/{id}", a.limited("write", a.deleteScenario))
 	mux.HandleFunc("POST /api/reports", a.limited("report", a.report))
+	mux.HandleFunc("GET /api/auth/google/start", a.limited("auth", a.loginStart))
+	mux.HandleFunc("GET /api/auth/google/callback", a.limited("auth", a.loginCallback))
+	mux.HandleFunc("POST /api/auth/signout", a.limited("auth", a.signOut))
+	mux.HandleFunc("GET /api/me", a.me)
+	mux.HandleFunc("PATCH /api/me", a.limited("auth", a.rename))
+	mux.HandleFunc("DELETE /api/me", a.limited("auth", a.deleteAccount))
+	mux.HandleFunc("GET /api/me/scenarios", a.myScenarios)
+	mux.HandleFunc("POST /api/me/claim", a.limited("auth", a.claim))
 	// JSON 404 for unknown GET routes; method-only mismatches still get the mux's 405
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		writeErrors(w, http.StatusNotFound, "Not found.")
@@ -97,12 +124,13 @@ func New(svc Publisher, db Pinger, opt Options) http.Handler {
 }
 
 type api struct {
-	svc     Publisher
-	db      Pinger
-	log     *slog.Logger
-	writes  *limiter
-	bot     BotCheck
-	reports Reporter
+	svc      Publisher
+	db       Pinger
+	log      *slog.Logger
+	writes   *limiter
+	bot      BotCheck
+	reports  Reporter
+	accounts Accounts
 }
 
 type scenarioBody struct {
@@ -157,20 +185,20 @@ func (a *api) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *api) publish(w http.ResponseWriter, r *http.Request) {
+	acc, ok := a.requireAccount(w, r)
+	if !ok {
+		return
+	}
 	body, ok := a.readScenario(w, r)
 	if !ok || !a.human(w, r, body.TurnstileToken) {
 		return
 	}
-	created, err := a.svc.Publish(r.Context(), body.Scenario)
+	created, err := a.svc.Publish(r.Context(), acc.ID, body.Scenario)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{
-		"id":        created.ID,
-		"editToken": created.EditToken,
-		"updatedAt": created.UpdatedAt.UTC(),
-	})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": created.ID, "updatedAt": created.UpdatedAt.UTC()})
 }
 
 func (a *api) get(w http.ResponseWriter, r *http.Request) {
@@ -179,18 +207,36 @@ func (a *api) get(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, err)
 		return
 	}
+	out := map[string]any{"id": p.ID, "scenario": p.Doc, "updatedAt": p.UpdatedAt.UTC(), "isOwner": false}
+	if p.OwnerID != 0 {
+		// the verified author; never the email or account id
+		out["owner"] = map[string]string{"displayName": p.OwnerName}
+		if acc, signedIn, err := a.session(r); err == nil && signedIn {
+			out["isOwner"] = acc.ID == p.OwnerID
+		}
+	}
 	w.Header().Set("Cache-Control", "no-store") // updates must show immediately
-	writeJSON(w, http.StatusOK, map[string]any{"id": p.ID, "scenario": p.Doc, "updatedAt": p.UpdatedAt.UTC()})
+	writeJSON(w, http.StatusOK, out)
 }
 
+// update accepts the owner's session (with the client header) or a legacy edit token.
 func (a *api) update(w http.ResponseWriter, r *http.Request) {
+	var cred publishing.Credential
+	if hasSessionCookie(r) {
+		acc, ok := a.requireAccount(w, r)
+		if !ok {
+			return
+		}
+		cred.OwnerID = acc.ID
+	}
 	token, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	cred.Token = strings.TrimSpace(token)
 	body, ok := a.readScenario(w, r)
 	if !ok || !a.human(w, r, body.TurnstileToken) {
 		return
 	}
 	id := r.PathValue("id")
-	at, err := a.svc.Update(r.Context(), id, strings.TrimSpace(token), body.Scenario)
+	at, err := a.svc.Update(r.Context(), id, cred, body.Scenario)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -198,6 +244,17 @@ func (a *api) update(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "updatedAt": at.UTC()})
 }
 
+func (a *api) deleteScenario(w http.ResponseWriter, r *http.Request) {
+	acc, ok := a.requireAccount(w, r)
+	if !ok {
+		return
+	}
+	if err := a.svc.Delete(r.Context(), r.PathValue("id"), acc.ID); err != nil {
+		a.fail(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
 func (a *api) report(w http.ResponseWriter, r *http.Request) {
 	if a.reports == nil {
 		writeErrors(w, http.StatusServiceUnavailable, "Reporting is not available on this server.")
@@ -258,6 +315,10 @@ func (a *api) fail(w http.ResponseWriter, err error) {
 		writeErrors(w, http.StatusUnprocessableEntity, inv.Messages...)
 	case errors.Is(err, publishing.ErrNotFound):
 		writeErrors(w, http.StatusNotFound, "Scenario not found.")
+	case errors.Is(err, publishing.ErrSignedOut):
+		writeCode(w, http.StatusUnauthorized, codeSignedOut, "Sign in to do this.")
+	case errors.Is(err, publishing.ErrNotOwner):
+		writeCode(w, http.StatusForbidden, codeNotOwner, "Only the scenario's owner can change it.")
 	case errors.Is(err, publishing.ErrMissingToken):
 		w.Header().Set("WWW-Authenticate", "Bearer")
 		writeErrors(w, http.StatusUnauthorized, "An edit token is required.")
@@ -269,7 +330,7 @@ func (a *api) fail(w http.ResponseWriter, err error) {
 	}
 }
 
-// limited applies a per-IP rate limit; each bucket ("write", "report") is counted separately.
+// limited applies a per-IP rate limit; each bucket ("write", "report", "auth") is counted separately.
 func (a *api) limited(bucket string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ok, wait := a.writes.allow(bucket + ":" + clientIP(r))

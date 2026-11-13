@@ -7,13 +7,12 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/BintangDwitama/minovsky-maps/server/internal/accounts"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/httpapi"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/publishing"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/reports"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/scenario"
-	"github.com/BintangDwitama/minovsky-maps/server/internal/store/memory"
 )
 
 // fakeBot accepts the token "human", rejects others, and can simulate Cloudflare being down.
@@ -29,34 +28,32 @@ func (b fakeBot) Verify(_ context.Context, token, _ string) error {
 	return nil
 }
 
+// safeguards is a fixture with a bot check, reports, and alice signed in.
 type safeguards struct {
-	h     http.Handler
-	store *memory.Store
+	*fixture
+	as []string
 }
 
 func newSafeguards(t *testing.T, bot httpapi.BotCheck, burst int) *safeguards {
 	t.Helper()
+	// sign in on a lenient handler, then serve the tests with the requested limits
+	f := newFixture(t, httpapi.Options{WritesPerMinute: 100, WriteBurst: 100})
+	s := &safeguards{fixture: f, as: f.signIn(t, "alice")}
 	v, _ := scenario.NewValidator()
-	store := memory.NewWithClock(time.Now)
-	h := httpapi.New(publishing.NewService(store, v), store, httpapi.Options{
+	f.h = httpapi.New(publishing.NewService(f.store, v), f.store, httpapi.Options{
 		Bot:             bot,
-		Reports:         reports.NewService(store, reports.NoNotifier{}, nil),
+		Reports:         reports.NewService(f.store, reports.NoNotifier{}, nil),
+		Accounts:        accounts.NewService(f.store, fakeGoogle{}, nil),
 		WritesPerMinute: burst,
 		WriteBurst:      burst,
 	})
-	return &safeguards{h: h, store: store}
+	return s
 }
 
-func (s *safeguards) do(method, path, body string, headers ...string) *httptest.ResponseRecorder {
-	req := httptest.NewRequest(method, path, strings.NewReader(body))
-	for i := 0; i+1 < len(headers); i += 2 {
-		req.Header.Set(headers[i], headers[i+1])
-	}
-	rec := httptest.NewRecorder()
-	s.h.ServeHTTP(rec, req)
-	return rec
+// publish sends a scenario as alice.
+func (s *safeguards) publish(body string, headers ...string) *httptest.ResponseRecorder {
+	return s.do("POST", "/api/scenarios", body, append(headers, s.as...)...)
 }
-
 func withToken(t *testing.T, file, token string) string {
 	t.Helper()
 	body := wrap(t, file)
@@ -65,18 +62,18 @@ func withToken(t *testing.T, file, token string) string {
 
 func TestBotCheckOnWrites(t *testing.T) {
 	s := newSafeguards(t, fakeBot{}, 100)
-	if rec := s.do("POST", "/api/scenarios", wrap(t, "examples/minimal.scenario.json")); rec.Code != 403 {
+	if rec := s.publish(wrap(t, "examples/minimal.scenario.json")); rec.Code != 403 {
 		t.Fatalf("no token: %d", rec.Code)
 	}
-	if rec := s.do("POST", "/api/scenarios", withToken(t, "examples/minimal.scenario.json", "robot")); rec.Code != 403 || !strings.Contains(rec.Body.String(), `"code":"bot-check"`) {
+	if rec := s.publish(withToken(t, "examples/minimal.scenario.json", "robot")); rec.Code != 403 || !strings.Contains(rec.Body.String(), `"code":"bot-check"`) {
 		t.Fatalf("bad token: %d %s", rec.Code, rec.Body)
 	}
-	rec := s.do("POST", "/api/scenarios", withToken(t, "examples/minimal.scenario.json", "human"))
+	rec := s.publish(withToken(t, "examples/minimal.scenario.json", "human"))
 	if rec.Code != 201 {
 		t.Fatalf("human: %d %s", rec.Code, rec.Body)
 	}
 	c := decode[created](t, rec)
-	if rec := s.do("PUT", "/api/scenarios/"+c.ID, wrap(t, "examples/minimal.scenario.json"), "Authorization", "Bearer "+c.EditToken); rec.Code != 403 {
+	if rec := s.do("PUT", "/api/scenarios/"+c.ID, wrap(t, "examples/minimal.scenario.json"), s.as...); rec.Code != 403 {
 		t.Fatalf("update without token: %d", rec.Code)
 	}
 	if n := s.store.Versions(c.ID); n != 1 {
@@ -86,7 +83,7 @@ func TestBotCheckOnWrites(t *testing.T) {
 
 func TestBotCheckOutageFailsClosed(t *testing.T) {
 	s := newSafeguards(t, fakeBot{down: true}, 100)
-	rec := s.do("POST", "/api/scenarios", withToken(t, "examples/minimal.scenario.json", "human"))
+	rec := s.publish(withToken(t, "examples/minimal.scenario.json", "human"))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("outage: %d", rec.Code)
 	}
@@ -94,14 +91,14 @@ func TestBotCheckOutageFailsClosed(t *testing.T) {
 
 func TestNoBotCheckConfigured(t *testing.T) {
 	s := newSafeguards(t, nil, 100)
-	if rec := s.do("POST", "/api/scenarios", wrap(t, "examples/minimal.scenario.json")); rec.Code != 201 {
+	if rec := s.publish(wrap(t, "examples/minimal.scenario.json")); rec.Code != 201 {
 		t.Fatalf("without a check, writes pass: %d", rec.Code)
 	}
 }
 
 func TestReportEndpoint(t *testing.T) {
 	s := newSafeguards(t, fakeBot{}, 100)
-	c := decode[created](t, s.do("POST", "/api/scenarios", withToken(t, "examples/minimal.scenario.json", "human")))
+	c := decode[created](t, s.publish(withToken(t, "examples/minimal.scenario.json", "human")))
 	report := func(id, reason, details, token string) *httptest.ResponseRecorder {
 		body := `{"scenarioId":"` + id + `","reason":"` + reason + `","details":"` + details + `","turnstileToken":"` + token + `"}`
 		return s.do("POST", "/api/reports", body, "X-Forwarded-For", "198.51.100.7")
@@ -126,7 +123,7 @@ func TestReportEndpoint(t *testing.T) {
 
 func TestReportRateLimitHasItsOwnBucket(t *testing.T) {
 	s := newSafeguards(t, fakeBot{}, 1)
-	c := decode[created](t, s.do("POST", "/api/scenarios", withToken(t, "examples/minimal.scenario.json", "human")))
+	c := decode[created](t, s.publish(withToken(t, "examples/minimal.scenario.json", "human")))
 	ip := []string{"X-Forwarded-For", "198.51.100.7"}
 	report := `{"scenarioId":"` + c.ID + `","reason":"spam","turnstileToken":"human"}`
 	if rec := s.do("POST", "/api/reports", report, ip...); rec.Code != 201 {
@@ -136,7 +133,7 @@ func TestReportRateLimitHasItsOwnBucket(t *testing.T) {
 		t.Fatalf("second report should be limited: %d", rec.Code)
 	}
 	// reports and writes are counted separately: publishing from the same IP still works
-	pub := s.do("POST", "/api/scenarios", withToken(t, "examples/minimal.scenario.json", "human"), ip...)
+	pub := s.publish(withToken(t, "examples/minimal.scenario.json", "human"), ip...)
 	if pub.Code != 201 {
 		t.Fatalf("publishing after reports: %d", pub.Code)
 	}

@@ -27,6 +27,8 @@ export interface EditorSnapshot {
 /** Link between the open document and a published scenario. Never written into scenario files. */
 export interface PublicationRef {
   readonly id: string;
+  /** Owned by the signed-in account (else a legacy scenario updated with an edit token). */
+  readonly owned?: boolean;
 }
 
 interface HistoryEntry {

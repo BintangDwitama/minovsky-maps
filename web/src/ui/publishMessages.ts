@@ -29,6 +29,17 @@ export const PUBLISH_FAILURE: Record<
     intro: 'Open the private edit link you saved when publishing, then try again.',
     showErrors: false,
   },
+  'signed-out': {
+    title: 'Sign in to continue',
+    intro: 'Your sign-in has ended. Sign in with Google again; your work is safe in this browser.',
+    showErrors: false,
+  },
+  'not-owner': {
+    title: 'Not your scenario',
+    intro:
+      'This scenario belongs to another account. Use “Edit a copy” on its page to publish your own version.',
+    showErrors: false,
+  },
   bot: {
     title: 'Couldn’t confirm you’re a person',
     intro: 'The bot check didn’t succeed:',

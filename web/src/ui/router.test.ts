@@ -17,6 +17,7 @@ describe('parseRoute', () => {
       '#/edit-published/abcdEFG1',
       { page: 'editor', importLink: null, publishedId: 'abcdEFG1' },
     ],
+    ['/', '#/privacy', { page: 'privacy' }],
     ['/s/abcdEFG1', '', { page: 'published', id: 'abcdEFG1', editToken: null }],
     ['/s/abcdEFG1/', '', { page: 'published', id: 'abcdEFG1', editToken: null }],
     ['/s/abcdEFG1', '#edit=tok_en-1', { page: 'published', id: 'abcdEFG1', editToken: 'tok_en-1' }],

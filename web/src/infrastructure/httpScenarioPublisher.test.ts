@@ -8,15 +8,15 @@ const json = (status: number, body: unknown) =>
 
 describe('HttpScenarioPublisher', () => {
   it('publishes to /api/scenarios with the scenario wrapped', async () => {
-    const fetchImpl = vi.fn(async () =>
-      json(201, { id: 'abcdEFG1', editToken: 't', updatedAt: 'x' }),
-    );
+    const fetchImpl = vi.fn(async () => json(201, { id: 'abcdEFG1', updatedAt: 'x' }));
     const p = new HttpScenarioPublisher({ fetchImpl });
     const r = await p.publish(createScenario({ name: 'Mesa' }));
-    expect(r).toEqual({ ok: true, value: { id: 'abcdEFG1', editToken: 't', updatedAt: 'x' } });
+    expect(r).toEqual({ ok: true, value: { id: 'abcdEFG1', updatedAt: 'x' } });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('/api/scenarios');
     expect(init.method).toBe('POST');
+    expect(init.credentials).toBe('same-origin');
+    expect((init.headers as Record<string, string>)['X-Minovsky-Client']).toBe('web');
     expect(JSON.parse(init.body as string).scenario.meta.name).toBe('Mesa');
   });
 
@@ -118,6 +118,54 @@ describe('HttpScenarioPublisher', () => {
     expect(await p.update('abcdEFG1', 'x', createScenario())).toMatchObject({
       failure: 'forbidden',
     });
+  });
+
+  it('owners update without a token; owned reads carry the verified owner', async () => {
+    const fetchImpl = vi.fn(async () =>
+      json(200, {
+        id: 'abcdEFG1',
+        scenario: {},
+        updatedAt: 'x',
+        owner: { displayName: 'Bintang' },
+        isOwner: true,
+      }),
+    );
+    const p = new HttpScenarioPublisher({ fetchImpl });
+    await p.update('abcdEFG1', null, createScenario());
+    const init = (fetchImpl.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
+    expect(await p.fetch('abcdEFG1')).toEqual({
+      ok: true,
+      value: { scenario: {}, updatedAt: 'x', owner: { displayName: 'Bintang' }, isOwner: true },
+    });
+    const get = (fetchImpl.mock.calls[1] as unknown as [string, RequestInit])[1];
+    expect((get.headers as Record<string, string>)['X-Minovsky-Client']).toBeUndefined();
+  });
+
+  it('legacy reads have no owner', async () => {
+    const p = new HttpScenarioPublisher({
+      fetchImpl: vi.fn(async () => json(200, { id: 'a', scenario: {}, updatedAt: 'x' })),
+    });
+    expect(await p.fetch('abcdEFG1')).toMatchObject({ value: { owner: null, isOwner: false } });
+  });
+
+  it.each([
+    [401, 'signed-out', 'signed-out'],
+    [403, 'not-owner', 'not-owner'],
+    [403, 'client-header', 'forbidden'],
+  ])('maps %i with code %s to %s', async (status, code, failure) => {
+    const p = new HttpScenarioPublisher({
+      fetchImpl: vi.fn(async () => json(status, { code, errors: ['x'] })),
+    });
+    expect(await p.publish(createScenario())).toMatchObject({ ok: false, failure });
+  });
+
+  it('deletes with DELETE and accepts an empty 204', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const r = await new HttpScenarioPublisher({ fetchImpl }).remove('abcdEFG1');
+    expect(r).toEqual({ ok: true, value: {} });
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect([url, init.method]).toEqual(['/api/scenarios/abcdEFG1', 'DELETE']);
   });
 
   it('wake never throws', () => {

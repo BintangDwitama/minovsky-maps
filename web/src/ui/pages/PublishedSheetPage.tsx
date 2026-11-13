@@ -36,7 +36,7 @@ const buildServices = () => ({
 
 type State =
   | { kind: 'loading'; slow: boolean }
-  | { kind: 'ready'; scenario: Scenario }
+  | { kind: 'ready'; scenario: Scenario; ownerName: string | null; isOwner: boolean }
   | { kind: 'not-found' }
   | { kind: 'invalid'; errors: string[] }
   | { kind: 'unavailable' };
@@ -51,7 +51,8 @@ export interface PublishedSheetPageProps {
 export function PublishedSheetPage({ id, editToken }: PublishedSheetPageProps) {
   const [services] = useState(buildServices);
   const [state, setState] = useState<State>({ kind: 'loading', slow: false });
-  const [canEdit, setCanEdit] = useState(() => services.publications.get(id) !== null);
+  // a legacy edit token in this browser; owners can edit anyway (isOwner from the read)
+  const [hasToken, setHasToken] = useState(() => services.publications.get(id) !== null);
   const [reporting, setReporting] = useState(false);
 
   // a private edit link: remember the token in this browser and take it out of the address bar
@@ -61,7 +62,7 @@ export function PublishedSheetPage({ id, editToken }: PublishedSheetPageProps) {
     tokenHandled.current = true;
     rememberEditToken(services.publications, id, editToken);
     replaceHashSilently(`${location.pathname}${location.search}`);
-    setCanEdit(true);
+    setHasToken(true);
   }, [editToken, id, services]);
 
   const load = useCallback(() => {
@@ -72,7 +73,12 @@ export function PublishedSheetPage({ id, editToken }: PublishedSheetPageProps) {
     }).then((r) => {
       if (!active) return;
       if (r.ok) {
-        setState({ kind: 'ready', scenario: r.scenario });
+        setState({
+          kind: 'ready',
+          scenario: r.scenario,
+          ownerName: r.ownerName,
+          isOwner: r.isOwner,
+        });
         const known = services.publications.get(id);
         if (known) services.publications.save({ ...known, name: r.scenario.meta.name });
       } else if (r.failure === 'not-found') setState({ kind: 'not-found' });
@@ -134,11 +140,13 @@ export function PublishedSheetPage({ id, editToken }: PublishedSheetPageProps) {
       );
     case 'ready': {
       const s = state.scenario;
+      const canEdit = state.isOwner || hasToken;
       return (
         <SheetView
           scenario={s}
           link={shortLink(appAddress(), id)}
           storedIn="server"
+          verifiedAuthor={state.ownerName}
           services={services}
           editActions={
             <>

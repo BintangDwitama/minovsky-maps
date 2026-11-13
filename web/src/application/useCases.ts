@@ -160,8 +160,11 @@ export const findDraft = (drafts: DraftStore): Draft | null => {
     const parsed = JSON.parse(text) as Record<string, unknown>;
     if (parsed && parsed.draft === 2 && 'scenario' in parsed) {
       doc = parsed.scenario;
-      const p = parsed.publication as { id?: unknown } | null;
-      publication = p && typeof p.id === 'string' ? { id: p.id } : null;
+      const p = parsed.publication as { id?: unknown; owned?: unknown } | null;
+      publication =
+        p && typeof p.id === 'string'
+          ? { id: p.id, ...(p.owned === true ? { owned: true } : {}) }
+          : null;
     } else {
       doc = parsed; // pre-publishing drafts: the scenario itself
     }

@@ -54,30 +54,37 @@ func nameOf(t *testing.T, doc []byte) string {
 	return m.Meta.Name
 }
 
+const alice, bob int64 = 1, 2
+
+// legacy stores a pre-accounts scenario with an edit token, as old clients created them.
+func legacy(t *testing.T, store *memory.Store, id, token string, doc []byte) {
+	t.Helper()
+	if _, err := store.Create(context.Background(), id, 0, publishing.HashToken(token), doc, 1); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPublishGetUpdate(t *testing.T) {
 	ctx := context.Background()
 	svc, store := setup(t)
 
-	created, err := svc.Publish(ctx, example(t, "sample-mesa.scenario.json"))
+	created, err := svc.Publish(ctx, alice, example(t, "sample-mesa.scenario.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !publishing.ValidID(created.ID) {
 		t.Fatalf("bad id %q", created.ID)
 	}
-	if len(created.EditToken) < 40 {
-		t.Fatalf("token too short: %q", created.EditToken)
-	}
-
 	got, err := svc.Get(ctx, created.ID)
-	if err != nil || nameOf(t, got.Doc) != "Sample: Desert Mesa" {
-		t.Fatalf("get: %v %s", err, got.Doc)
+	if err != nil || nameOf(t, got.Doc) != "Sample: Desert Mesa" || got.OwnerID != alice {
+		t.Fatalf("get: %v %+v", err, got)
 	}
 
-	if _, err := svc.Update(ctx, created.ID, created.EditToken, rename(t, got.Doc, "Desert Mesa v2")); err != nil {
+	owner := publishing.Credential{OwnerID: alice}
+	if _, err := svc.Update(ctx, created.ID, owner, rename(t, got.Doc, "Desert Mesa v2")); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Update(ctx, created.ID, created.EditToken, rename(t, got.Doc, "Desert Mesa v3")); err != nil {
+	if _, err := svc.Update(ctx, created.ID, owner, rename(t, got.Doc, "Desert Mesa v3")); err != nil {
 		t.Fatal(err)
 	}
 	latest, _ := svc.Get(ctx, created.ID)
@@ -89,20 +96,128 @@ func TestPublishGetUpdate(t *testing.T) {
 	}
 }
 
-func TestUpdateNeedsTheRightToken(t *testing.T) {
+func TestPublishNeedsAnAccount(t *testing.T) {
+	svc, _ := setup(t)
+	if _, err := svc.Publish(context.Background(), 0, example(t, "minimal.scenario.json")); !errors.Is(err, publishing.ErrSignedOut) {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestOnlyTheOwnerUpdatesAndDeletes(t *testing.T) {
 	ctx := context.Background()
 	svc, store := setup(t)
 	doc := example(t, "minimal.scenario.json")
-	created, _ := svc.Publish(ctx, doc)
+	c, _ := svc.Publish(ctx, alice, doc)
 
-	if _, err := svc.Update(ctx, created.ID, "", doc); !errors.Is(err, publishing.ErrMissingToken) {
+	cases := []struct {
+		name string
+		cred publishing.Credential
+		want error
+	}{
+		{"signed out", publishing.Credential{}, publishing.ErrSignedOut},
+		{"someone else", publishing.Credential{OwnerID: bob}, publishing.ErrNotOwner},
+		{"a token", publishing.Credential{Token: "guess"}, publishing.ErrForbidden},
+	}
+	for _, tc := range cases {
+		if _, err := svc.Update(ctx, c.ID, tc.cred, doc); !errors.Is(err, tc.want) {
+			t.Errorf("%s: got %v want %v", tc.name, err, tc.want)
+		}
+	}
+	if err := svc.Delete(ctx, c.ID, bob); !errors.Is(err, publishing.ErrNotOwner) {
+		t.Fatalf("delete by other: %v", err)
+	}
+	if err := svc.Delete(ctx, c.ID, 0); !errors.Is(err, publishing.ErrSignedOut) {
+		t.Fatalf("delete signed out: %v", err)
+	}
+	if store.Versions(c.ID) != 1 {
+		t.Fatal("refused changes must not store a version")
+	}
+	if err := svc.Delete(ctx, c.ID, alice); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Get(ctx, c.ID); !errors.Is(err, publishing.ErrNotFound) {
+		t.Fatalf("deleted scenario still readable: %v", err)
+	}
+	if store.RemovedReason(c.ID) != publishing.RemovedByOwner {
+		t.Fatalf("reason %q", store.RemovedReason(c.ID))
+	}
+}
+
+func TestLegacyTokensStillUpdate(t *testing.T) {
+	ctx := context.Background()
+	svc, store := setup(t)
+	doc := example(t, "minimal.scenario.json")
+	legacy(t, store, "Legacy01", "secret-token", doc)
+
+	if _, err := svc.Update(ctx, "Legacy01", publishing.Credential{}, doc); !errors.Is(err, publishing.ErrMissingToken) {
 		t.Fatalf("missing token: %v", err)
 	}
-	if _, err := svc.Update(ctx, created.ID, "wrong-token", doc); !errors.Is(err, publishing.ErrForbidden) {
+	if _, err := svc.Update(ctx, "Legacy01", publishing.Credential{Token: "wrong"}, doc); !errors.Is(err, publishing.ErrForbidden) {
 		t.Fatalf("wrong token: %v", err)
 	}
-	if store.Versions(created.ID) != 1 {
-		t.Fatal("a refused update must not store a version")
+	if _, err := svc.Update(ctx, "Legacy01", publishing.Credential{OwnerID: alice}, doc); !errors.Is(err, publishing.ErrNotOwner) {
+		t.Fatalf("signed in without the token: %v", err)
+	}
+	if _, err := svc.Update(ctx, "Legacy01", publishing.Credential{OwnerID: alice, Token: "secret-token"}, doc); err != nil {
+		t.Fatalf("right token: %v", err)
+	}
+	if err := svc.Delete(ctx, "Legacy01", alice); !errors.Is(err, publishing.ErrNotOwner) {
+		t.Fatalf("unclaimed scenarios cannot be deleted by accounts: %v", err)
+	}
+}
+
+func TestClaim(t *testing.T) {
+	ctx := context.Background()
+	svc, store := setup(t)
+	doc := example(t, "minimal.scenario.json")
+	legacy(t, store, "Legacy01", "tok-1", doc)
+	legacy(t, store, "Legacy02", "tok-2", doc)
+	legacy(t, store, "Legacy03", "tok-3", doc)
+	store.TakeDown("Legacy03")
+
+	claimed, err := svc.Claim(ctx, alice, []publishing.TokenClaim{
+		{ID: "Legacy01", Token: "tok-1"},
+		{ID: "Legacy02", Token: "wrong"}, // wrong token: skipped
+		{ID: "Legacy03", Token: "tok-3"}, // taken down: skipped
+		{ID: "zzzzzzzz", Token: "x"},     // unknown: skipped
+		{ID: "../bad", Token: "x"},       // malformed: skipped
+	})
+	if err != nil || len(claimed) != 1 || claimed[0] != "Legacy01" {
+		t.Fatalf("claimed %v %v", claimed, err)
+	}
+	if store.Owner("Legacy01") != alice {
+		t.Fatal("owner not set")
+	}
+	// the old token no longer works; the owner's session does
+	if _, err := svc.Update(ctx, "Legacy01", publishing.Credential{Token: "tok-1"}, doc); !errors.Is(err, publishing.ErrForbidden) {
+		t.Fatalf("old token after claim: %v", err)
+	}
+	if _, err := svc.Update(ctx, "Legacy01", publishing.Credential{OwnerID: alice}, doc); err != nil {
+		t.Fatalf("owner after claim: %v", err)
+	}
+	// claiming twice (or by someone else) does nothing
+	if again, _ := svc.Claim(ctx, bob, []publishing.TokenClaim{{ID: "Legacy01", Token: "tok-1"}}); len(again) != 0 {
+		t.Fatalf("re-claim: %v", again)
+	}
+	if _, err := svc.Claim(ctx, 0, nil); !errors.Is(err, publishing.ErrSignedOut) {
+		t.Fatalf("claim signed out: %v", err)
+	}
+}
+
+func TestListOwned(t *testing.T) {
+	ctx := context.Background()
+	svc, _ := setup(t)
+	a, _ := svc.Publish(ctx, alice, rename(t, example(t, "minimal.scenario.json"), "First"))
+	b, _ := svc.Publish(ctx, alice, rename(t, example(t, "minimal.scenario.json"), "Second"))
+	_, _ = svc.Publish(ctx, bob, example(t, "minimal.scenario.json"))
+	_ = svc.Delete(ctx, a.ID, alice)
+
+	list, err := svc.ListOwned(ctx, alice)
+	if err != nil || len(list) != 1 || list[0].ID != b.ID || list[0].Name != "Second" {
+		t.Fatalf("list %+v %v", list, err)
+	}
+	if _, err := svc.ListOwned(ctx, 0); !errors.Is(err, publishing.ErrSignedOut) {
+		t.Fatalf("signed out: %v", err)
 	}
 }
 
@@ -110,15 +225,15 @@ func TestInvalidDocumentsAreRejected(t *testing.T) {
 	ctx := context.Background()
 	svc, store := setup(t)
 	bad, _ := fs.ReadFile(schema.Examples, "examples/invalid/off-board-carrier.json")
-	_, err := svc.Publish(ctx, bad)
+	_, err := svc.Publish(ctx, alice, bad)
 	var inv *scenario.Invalid
 	if !errors.As(err, &inv) {
 		t.Fatalf("expected *scenario.Invalid, got %v", err)
 	}
 
-	created, _ := svc.Publish(ctx, example(t, "minimal.scenario.json"))
+	created, _ := svc.Publish(ctx, alice, example(t, "minimal.scenario.json"))
 	future, _ := fs.ReadFile(schema.Examples, "examples/invalid/future-version.json")
-	if _, err := svc.Update(ctx, created.ID, created.EditToken, future); !errors.As(err, &inv) {
+	if _, err := svc.Update(ctx, created.ID, publishing.Credential{OwnerID: alice}, future); !errors.As(err, &inv) {
 		t.Fatalf("unsupported schemaVersion should be invalid, got %v", err)
 	}
 	if store.Versions(created.ID) != 1 {
@@ -134,12 +249,12 @@ func TestNotFoundAndTakedown(t *testing.T) {
 			t.Fatalf("%q: %v", id, err)
 		}
 	}
-	created, _ := svc.Publish(ctx, example(t, "minimal.scenario.json"))
+	created, _ := svc.Publish(ctx, alice, example(t, "minimal.scenario.json"))
 	store.TakeDown(created.ID)
 	if _, err := svc.Get(ctx, created.ID); !errors.Is(err, publishing.ErrNotFound) {
 		t.Fatalf("taken down should read as not found: %v", err)
 	}
-	if _, err := svc.Update(ctx, created.ID, created.EditToken, example(t, "minimal.scenario.json")); !errors.Is(err, publishing.ErrNotFound) {
+	if _, err := svc.Update(ctx, created.ID, publishing.Credential{OwnerID: alice}, example(t, "minimal.scenario.json")); !errors.Is(err, publishing.ErrNotFound) {
 		t.Fatalf("taken down should not update: %v", err)
 	}
 }
@@ -150,7 +265,7 @@ func TestIDsAreUniqueAndWellFormed(t *testing.T) {
 	doc := example(t, "minimal.scenario.json")
 	seen := map[string]bool{}
 	for i := 0; i < 200; i++ {
-		c, err := svc.Publish(ctx, doc)
+		c, err := svc.Publish(ctx, alice, doc)
 		if err != nil {
 			t.Fatal(err)
 		}

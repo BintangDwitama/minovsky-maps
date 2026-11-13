@@ -9,12 +9,17 @@ export const EDIT_PUBLISHED_ROUTE = '/edit-published/';
  * - `/s/<id>[#edit=<token>]` published scenario sheet (a real path: short and stable)
  * - `#/view/<link>` share-link sheet; `#/edit/<link>` editor importing a share link
  * - `#/edit-published/<id>` editor opening a published scenario
+ * - `#/privacy` what we store
  * - anything else: the editor
  */
 export type Route =
   | { page: 'editor'; importLink: string | null; publishedId: string | null }
   | { page: 'sheet'; link: string }
-  | { page: 'published'; id: string; editToken: string | null };
+  | { page: 'published'; id: string; editToken: string | null }
+  | { page: 'privacy' };
+
+/** Route (after `#`) of the privacy note. */
+export const PRIVACY_ROUTE = '/privacy';
 
 const PUBLISHED_RE = /^\/s\/([A-Za-z0-9]{8})\/?$/;
 
@@ -25,6 +30,7 @@ export const parseRoute = (pathname: string, hash: string): Route => {
     return { page: 'published', id: published[1]!, editToken: token };
   }
   const path = hash.replace(/^#/, '');
+  if (path === PRIVACY_ROUTE) return { page: 'privacy' };
   if (path.startsWith(VIEW_ROUTE) && path.length > VIEW_ROUTE.length) {
     return { page: 'sheet', link: path.slice(VIEW_ROUTE.length) };
   }

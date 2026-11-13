@@ -8,16 +8,35 @@ import (
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/BintangDwitama/minovsky-maps/schema"
+	"github.com/BintangDwitama/minovsky-maps/server/internal/accounts"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/httpapi"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/publishing"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/scenario"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/store/memory"
 )
+
+// fakeGoogle signs in whoever the code names; codes starting with "unverified" have an
+// unverified email.
+type fakeGoogle struct{}
+
+func (fakeGoogle) AuthURL(state, nonce, _ string) string {
+	return "https://accounts.example/auth?" + url.Values{"state": {state}, "nonce": {nonce}}.Encode()
+}
+
+func (fakeGoogle) Exchange(_ context.Context, code, _, _ string) (accounts.Identity, error) {
+	return accounts.Identity{
+		Subject:       code,
+		Email:         code + "@example.com",
+		EmailVerified: !strings.HasPrefix(code, "unverified"),
+		Name:          strings.ToUpper(code[:1]) + code[1:],
+	}, nil
+}
 
 type fixture struct {
 	h     http.Handler
@@ -32,8 +51,13 @@ func newFixture(t *testing.T, opt httpapi.Options) *fixture {
 		t.Fatal(err)
 	}
 	now := time.Date(2026, 11, 13, 12, 0, 0, 0, time.UTC)
-	f := &fixture{store: memory.NewWithClock(func() time.Time { return now }), clock: &now}
-	opt.Now = func() time.Time { return *f.clock }
+	f := &fixture{clock: &now}
+	clock := func() time.Time { return *f.clock }
+	f.store = memory.NewWithClock(clock)
+	opt.Now = clock
+	if opt.Accounts == nil {
+		opt.Accounts = accounts.NewService(f.store, fakeGoogle{}, clock)
+	}
 	f.h = httpapi.New(publishing.NewService(f.store, v), f.store, opt)
 	return f
 }
@@ -46,6 +70,41 @@ func (f *fixture) do(method, path, body string, headers ...string) *httptest.Res
 	rec := httptest.NewRecorder()
 	f.h.ServeHTTP(rec, req)
 	return rec
+}
+
+func cookie(rec *httptest.ResponseRecorder, name string) *http.Cookie {
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
+}
+
+// signIn runs the whole browser flow (start → Google → callback) and returns the headers a
+// signed-in app request carries: the session cookie and the client header.
+func (f *fixture) signIn(t *testing.T, who string) []string {
+	t.Helper()
+	start := f.do("GET", "/api/auth/google/start?return="+url.QueryEscape("/#/"), "")
+	if start.Code != http.StatusFound {
+		t.Fatalf("start: %d %s", start.Code, start.Body)
+	}
+	login := cookie(start, httpapi.LoginCookie)
+	if login == nil || !login.HttpOnly || !login.Secure || login.Path != "/api" {
+		t.Fatalf("login cookie %+v", login)
+	}
+	google, _ := url.Parse(start.Header().Get("Location"))
+	state := google.Query().Get("state")
+	cb := f.do("GET", "/api/auth/google/callback?"+url.Values{"state": {state}, "code": {who}}.Encode(), "",
+		"Cookie", httpapi.LoginCookie+"="+login.Value)
+	if cb.Code != http.StatusFound || cb.Header().Get("Location") != "/?signin=ok#/" {
+		t.Fatalf("callback: %d %q", cb.Code, cb.Header().Get("Location"))
+	}
+	s := cookie(cb, httpapi.SessionCookie)
+	if s == nil || s.Value == "" || !s.HttpOnly || !s.Secure || s.SameSite != http.SameSiteLaxMode || s.Path != "/api" {
+		t.Fatalf("session cookie %+v", s)
+	}
+	return []string{"Cookie", httpapi.SessionCookie + "=" + s.Value, httpapi.ClientHeader, "web"}
 }
 
 func wrap(t *testing.T, file string) string {
@@ -67,19 +126,23 @@ func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
 }
 
 type created struct {
-	ID        string `json:"id"`
-	EditToken string `json:"editToken"`
+	ID string `json:"id"`
 }
 
 type errorsBody struct {
+	Code   string   `json:"code"`
 	Errors []string `json:"errors"`
 }
 
 func TestPublishReadUpdate(t *testing.T) {
 	f := newFixture(t, httpapi.Options{})
-	rec := f.do("POST", "/api/scenarios", wrap(t, "examples/sample-mesa.scenario.json"))
+	as := f.signIn(t, "alice")
+	rec := f.do("POST", "/api/scenarios", wrap(t, "examples/sample-mesa.scenario.json"), as...)
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("publish: %d %s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "editToken") {
+		t.Fatal("owned scenarios get no edit token")
 	}
 	c := decode[created](t, rec)
 
@@ -92,7 +155,7 @@ func TestPublishReadUpdate(t *testing.T) {
 	}
 
 	updated := strings.Replace(wrap(t, "examples/sample-mesa.scenario.json"), "Sample: Desert Mesa", "Desert Mesa v2", 1)
-	rec = f.do("PUT", "/api/scenarios/"+c.ID, updated, "Authorization", "Bearer "+c.EditToken)
+	rec = f.do("PUT", "/api/scenarios/"+c.ID, updated, as...)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("update: %d %s", rec.Code, rec.Body)
 	}
@@ -104,7 +167,8 @@ func TestPublishReadUpdate(t *testing.T) {
 
 func TestStatusCodes(t *testing.T) {
 	f := newFixture(t, httpapi.Options{WriteBurst: 100, WritesPerMinute: 100})
-	c := decode[created](t, f.do("POST", "/api/scenarios", wrap(t, "examples/minimal.scenario.json")))
+	as := f.signIn(t, "alice")
+	c := decode[created](t, f.do("POST", "/api/scenarios", wrap(t, "examples/minimal.scenario.json"), as...))
 	good := wrap(t, "examples/minimal.scenario.json")
 
 	cases := []struct {
@@ -112,17 +176,17 @@ func TestStatusCodes(t *testing.T) {
 		rec    *httptest.ResponseRecorder
 		status int
 	}{
-		{"bad json", f.do("POST", "/api/scenarios", "{nope"), 400},
-		{"missing scenario", f.do("POST", "/api/scenarios", `{}`), 400},
-		{"too large", f.do("POST", "/api/scenarios", `{"scenario":"`+strings.Repeat("x", httpapi.MaxBodyBytes)+`"}`), 413},
-		{"invalid scenario", f.do("POST", "/api/scenarios", wrap(t, "examples/invalid/off-board-carrier.json")), 422},
+		{"bad json", f.do("POST", "/api/scenarios", "{nope", as...), 400},
+		{"missing scenario", f.do("POST", "/api/scenarios", `{}`, as...), 400},
+		{"too large", f.do("POST", "/api/scenarios", `{"scenario":"`+strings.Repeat("x", httpapi.MaxBodyBytes)+`"}`, as...), 413},
+		{"invalid scenario", f.do("POST", "/api/scenarios", wrap(t, "examples/invalid/off-board-carrier.json"), as...), 422},
 		{"unknown id", f.do("GET", "/api/scenarios/zzzzzzzz", ""), 404},
 		{"malformed id", f.do("GET", "/api/scenarios/..%2Fx", ""), 404},
-		{"no token", f.do("PUT", "/api/scenarios/"+c.ID, good), 401},
+		{"no credentials", f.do("PUT", "/api/scenarios/"+c.ID, good), 401},
 		{"wrong token", f.do("PUT", "/api/scenarios/"+c.ID, good, "Authorization", "Bearer nope"), 403},
-		{"update unknown", f.do("PUT", "/api/scenarios/zzzzzzzz", good, "Authorization", "Bearer x"), 404},
+		{"update unknown", f.do("PUT", "/api/scenarios/zzzzzzzz", good, as...), 404},
 		{"unknown route", f.do("GET", "/api/nope", ""), 404},
-		{"wrong method", f.do("DELETE", "/api/scenarios/"+c.ID, ""), 405},
+		{"wrong method", f.do("PATCH", "/api/scenarios/"+c.ID, ""), 405},
 	}
 	for _, tc := range cases {
 		if tc.rec.Code != tc.status {
@@ -133,7 +197,7 @@ func TestStatusCodes(t *testing.T) {
 
 func TestErrorsAreReadableJSON(t *testing.T) {
 	f := newFixture(t, httpapi.Options{})
-	rec := f.do("POST", "/api/scenarios", wrap(t, "examples/invalid/off-board-carrier.json"))
+	rec := f.do("POST", "/api/scenarios", wrap(t, "examples/invalid/off-board-carrier.json"), f.signIn(t, "alice")...)
 	body := decode[errorsBody](t, rec)
 	if len(body.Errors) == 0 || !strings.Contains(body.Errors[0], "not on the board") {
 		t.Fatalf("unexpected errors %v", body.Errors)
@@ -145,26 +209,27 @@ func TestErrorsAreReadableJSON(t *testing.T) {
 
 func TestWriteRateLimitPerIP(t *testing.T) {
 	f := newFixture(t, httpapi.Options{WritesPerMinute: 2, WriteBurst: 2})
+	as := f.signIn(t, "alice")
 	doc := wrap(t, "examples/minimal.scenario.json")
-	ip := func(addr string) []string { return []string{"X-Forwarded-For", addr + ", 10.0.0.1"} }
+	from := func(addr string) []string { return append([]string{"X-Forwarded-For", addr + ", 10.0.0.1"}, as...) }
 
 	for i := 0; i < 2; i++ {
-		if rec := f.do("POST", "/api/scenarios", doc, ip("1.2.3.4")...); rec.Code != 201 {
+		if rec := f.do("POST", "/api/scenarios", doc, from("1.2.3.4")...); rec.Code != 201 {
 			t.Fatalf("write %d: %d", i, rec.Code)
 		}
 	}
-	rec := f.do("POST", "/api/scenarios", doc, ip("1.2.3.4")...)
+	rec := f.do("POST", "/api/scenarios", doc, from("1.2.3.4")...)
 	if rec.Code != http.StatusTooManyRequests || rec.Header().Get("Retry-After") == "" {
 		t.Fatalf("expected 429 with Retry-After, got %d", rec.Code)
 	}
-	if rec := f.do("POST", "/api/scenarios", doc, ip("5.6.7.8")...); rec.Code != 201 {
+	if rec := f.do("POST", "/api/scenarios", doc, from("5.6.7.8")...); rec.Code != 201 {
 		t.Fatalf("other IP should not be limited: %d", rec.Code)
 	}
-	if rec := f.do("GET", "/api/health", "", ip("1.2.3.4")...); rec.Code != 200 {
+	if rec := f.do("GET", "/api/health", "", from("1.2.3.4")...); rec.Code != 200 {
 		t.Fatalf("reads are not limited: %d", rec.Code)
 	}
 	*f.clock = f.clock.Add(31 * time.Second) // 2/min ⇒ one token per 30 s
-	if rec := f.do("POST", "/api/scenarios", doc, ip("1.2.3.4")...); rec.Code != 201 {
+	if rec := f.do("POST", "/api/scenarios", doc, from("1.2.3.4")...); rec.Code != 201 {
 		t.Fatalf("token should refill: %d", rec.Code)
 	}
 }

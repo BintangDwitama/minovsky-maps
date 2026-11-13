@@ -222,7 +222,7 @@ export function BusyDialog({
 export type PublishPhase =
   | { kind: 'confirm' }
   | { kind: 'working'; slow: boolean }
-  | { kind: 'done'; shortLink: string; editLink: string | null; copied: boolean };
+  | { kind: 'done'; shortLink: string; copied: boolean };
 
 export interface PublishDialogProps {
   mode: 'publish' | 'update';
@@ -281,8 +281,8 @@ export function PublishDialog({ mode, name, phase, onConfirm, onClose }: Publish
             Publish <strong>{name}</strong> and get a short link you can keep updating.
           </p>
           <Hint as="p" className="mb-0">
-            Anyone with the link can see this scenario, including the author name. Please publish
-            your own scenarios; refer to official ones by name rather than copying them.
+            Anyone with the link can see this scenario, with your display name as its author. Please
+            publish your own scenarios; refer to official ones by name rather than copying them.
           </Hint>
         </>
       ) : null}
@@ -306,14 +306,11 @@ export function PublishDialog({ mode, name, phase, onConfirm, onClose }: Publish
               : 'Everyone with the link now sees this version.'}
           </p>
           {linkField('Short link', phase.shortLink)}
-          {phase.editLink ? (
-            <>
-              {linkField('Private edit link', phase.editLink)}
-              <Hint as="p" className="mt-0 mb-0 text-warning-text">
-                Keep the edit link private: it lets anyone update this scenario. This browser
-                remembers it; save it somewhere to edit from another device.
-              </Hint>
-            </>
+          {mode === 'publish' ? (
+            <Hint as="p" className="mt-0 mb-0">
+              It’s in My scenarios on any device where you sign in, so you can update or delete it
+              later.
+            </Hint>
           ) : null}
         </>
       ) : null}

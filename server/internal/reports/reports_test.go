@@ -29,7 +29,7 @@ func setup(t *testing.T, n reports.Notifier) (*reports.Service, *memory.Store, s
 	store := memory.New()
 	v, _ := scenario.NewValidator()
 	doc, _ := fs.ReadFile(schema.Examples, "examples/sample-mesa.scenario.json")
-	created, err := publishing.NewService(store, v).Publish(context.Background(), doc)
+	created, err := publishing.NewService(store, v).Publish(context.Background(), 1, doc)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { apiOrigin, onRequest } from '../../functions/api/[[path]]';
+import { apiCookies, apiOrigin, onRequest } from '../../functions/api/[[path]]';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -27,6 +27,43 @@ describe('Pages /api proxy', () => {
     expect(h.get('x-forwarded-for')).toBe('203.0.113.9');
     expect(h.get('cookie')).toBeNull();
     expect(new TextDecoder().decode(init.body as ArrayBuffer)).toBe('{"scenario":{}}');
+  });
+
+  it('forwards only the API cookies', async () => {
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const req = new Request('https://app.pages.dev/api/me', {
+      headers: { Cookie: 'cf_clearance=x; mm_session=abc; _ga=1; mm_login=st8' },
+    });
+    await onRequest({ request: req, env: { API_ORIGIN: 'https://api.example.com' } });
+    const h = (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].headers as Headers;
+    expect(h.get('cookie')).toBe('mm_session=abc; mm_login=st8');
+  });
+
+  it.each([
+    ['a=1; b=2', null],
+    ['mm_session=abc', 'mm_session=abc'],
+    ['  mm_session = abc ;x=1', 'mm_session = abc'],
+    ['mm_sessionx=1; xmm_login=2', null],
+    [null, null],
+  ])('apiCookies(%j)', (raw, want) => {
+    expect(apiCookies(raw)).toBe(want);
+  });
+
+  it('passes redirects and every Set-Cookie through', async () => {
+    const upstream = new Headers({ Location: '/?signin=ok#/' });
+    upstream.append('Set-Cookie', 'mm_login=; Path=/api; Max-Age=0; HttpOnly; Secure');
+    upstream.append('Set-Cookie', 'mm_session=tok; Path=/api; Max-Age=2592000; HttpOnly; Secure');
+    const fetchMock = vi.fn(async () => new Response(null, { status: 302, headers: upstream }));
+    vi.stubGlobal('fetch', fetchMock);
+    const req = new Request('https://app.pages.dev/api/auth/google/callback?code=c&state=s');
+    const res = await onRequest({ request: req, env: { API_ORIGIN: 'https://api.example.com' } });
+    expect((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].redirect).toBe(
+      'manual',
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/?signin=ok#/');
+    expect(res.headers.getSetCookie()).toHaveLength(2);
   });
 
   it.each([

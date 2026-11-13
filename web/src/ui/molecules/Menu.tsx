@@ -15,13 +15,15 @@ export interface MenuProps {
   variant?: 'frame' | 'default';
   /** A short note under the actions. */
   footer?: string;
+  /** Trigger icon (default: the menu bars). */
+  icon?: IconName;
 }
 
 /**
  * A button that opens a list of actions. Closes on pick, Escape, or a press outside it.
  * The list opens below the trigger, aligned to its right edge.
  */
-export function Menu({ label, items, variant = 'frame', footer }: MenuProps) {
+export function Menu({ label, items, variant = 'frame', footer, icon = 'menu' }: MenuProps) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const listId = useId();
@@ -51,7 +53,7 @@ export function Menu({ label, items, variant = 'frame', footer }: MenuProps) {
     <div ref={root} className="relative">
       <Button
         variant={variant}
-        icon="menu"
+        icon={icon}
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? listId : undefined}

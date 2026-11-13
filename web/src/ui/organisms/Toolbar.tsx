@@ -4,6 +4,7 @@ import { useHistory } from '../hooks/useHistory';
 import { BrandMark } from '../atoms/BrandMark';
 import { Brand } from '../molecules/Brand';
 import { Menu } from '../molecules/Menu';
+import { useAccountMenu } from './AccountMenu';
 
 export interface ToolbarProps {
   onNew(): void;
@@ -32,6 +33,7 @@ export function Toolbar({
   compact,
 }: ToolbarProps) {
   const { undo, redo } = useHistory();
+  const acct = useAccountMenu();
   const { scenario, canUndo, canRedo, dirty, undoLabel, redoLabel } = useEditor();
 
   const history = (
@@ -88,8 +90,14 @@ export function Toolbar({
             },
             { label: 'My scenarios', icon: 'list', onSelect: onMyScenarios },
             { label: 'Export PNG', icon: 'image', onSelect: onExport },
+            ...(acct.hidden
+              ? []
+              : acct.signedIn
+                ? acct.items
+                : [{ label: 'Sign in with Google', icon: 'user' as const, onSelect: acct.signIn }]),
           ]}
         />
+        {acct.dialogs}
       </header>
     );
   }
@@ -154,6 +162,14 @@ export function Toolbar({
       </span>
       <span className="flex-1" />
       <span className="text-xs text-frame-muted">Unofficial fan tool</span>
+      {acct.hidden ? null : acct.signedIn ? (
+        <Menu label={acct.label} icon="user" items={acct.items} />
+      ) : (
+        <Button variant="frame" icon="user" onClick={acct.signIn}>
+          Sign in
+        </Button>
+      )}
+      {acct.dialogs}
     </header>
   );
 }

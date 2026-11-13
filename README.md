@@ -33,6 +33,8 @@ go run ./cmd/api   # :8080; without DATABASE_URL it uses an in-memory store
 go test ./...      # unit tests + the shared conformance suite
 ```
 
+Signing in locally uses the real Google client when `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are set (add `http://localhost:5173/api/auth/google/callback` as a redirect URI, see deploy step 6). For quick tests without Google, run the API with `DEV_FAKE_SIGNIN=1` and **no** `DATABASE_URL` (e.g. from a folder outside the repo, so `.env.local` isn't read): everyone signs in as a test user. It refuses to work with a database.
+
 To run the API against a real database, use the Neon CLI from the repo root:
 
 ```sh
@@ -58,10 +60,13 @@ Links are permanent. The `1.` prefix is the link format version; never change ho
 
 **Publish** sends the scenario to the API and gives a short link, `https://<host>/s/<id>`, that always shows the latest version. **Update** stores a new version behind the same link.
 
-- There are no accounts. Publishing returns a secret edit token. The server stores only its hash; this browser remembers it, and a **private edit link** (`/s/<id>#edit=<token>`) is shown once so you can edit from another device. Anyone with that link can update the scenario.
+- Publishing needs **Sign in with Google** (the only sign-in method). Saving files and share links never do. The published scenario belongs to the account; its sheet shows the account's display name as a verified author. The email address is stored but never shown.
+- The session is an `HttpOnly`, `Secure`, `SameSite=Lax` cookie (`mm_session`, path `/api`, 30 days). Changes made with it must also carry the header `X-Minovsky-Client: web`.
+- Scenarios published before accounts existed were updated with a secret **edit token** (private edit link `/s/<id>#edit=<token>`). Those links keep working until the scenario is claimed: signing in claims every scenario the browser holds a token for, after which the old token stops working.
 - Every update is kept as a version; reads return the newest.
 - The API validates with the same JSON Schema and integrity rules as the editor.
-- **My scenarios** in the editor lists everything this browser can update (Open, Edit, Copy link, Forget).
+- **My scenarios** lists the account's scenarios on any device (Open, Edit, Copy link, Delete). Signed out, it lists the browser's pre-account scenarios instead.
+- Users can rename themselves and delete their account (which takes their scenarios offline) from the account menu. `#/privacy` explains what is stored.
 - Publish, Update and **Report** are protected by Cloudflare Turnstile (a free, mostly invisible bot check). Reports from the **Report** button on a published sheet are stored and emailed to the site owner.
 
 ## Deploying (all free, no payment card)
@@ -134,15 +139,28 @@ Your address only lives in Vercel's settings; it never appears on the site. With
 SELECT r.created_at, r.scenario_id, r.reason, r.details FROM reports r ORDER BY r.created_at DESC;
 ```
 
+### 6. Sign in with Google (free, no card)
+
+1. Go to **console.cloud.google.com**, create a project (e.g. `minovsky-maps`). No billing account is needed.
+2. **APIs & Services → OAuth consent screen**: user type **External**; app name `Minovsky Maps`; your email as support and developer contact; app home page `https://minovsky-maps.pages.dev`; privacy policy `https://minovsky-maps.pages.dev/#/privacy`. Scopes: only `openid`, `email` and `profile` (the defaults), which need no Google review.
+3. While the app is in **Testing**, only listed **test users** can sign in: add your own Google address there first.
+4. **Credentials → Create credentials → OAuth client ID**, type **Web application**. Authorized redirect URIs:
+   - `https://minovsky-maps.pages.dev/api/auth/google/callback`
+   - `http://localhost:5173/api/auth/google/callback` (local development)
+5. Vercel → Environment Variables: `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` from that client (and keep `PUBLIC_APP_URL` = `https://minovsky-maps.pages.dev`; the redirect is built from it). Redeploy Vercel.
+6. Try it on the site. When it works, go back to the consent screen and **Publish app** so anyone can sign in (for these basic scopes this needs no verification).
+
+For local development put the same two variables in `.env.local` (git-ignored). Without them, the API logs a warning and nobody can publish.
+
 ### Taking a scenario down
 
 In Neon's SQL editor:
 
 ```sql
-UPDATE scenarios SET taken_down_at = now() WHERE id = 'k3x9mQ2a';
+UPDATE scenarios SET taken_down_at = now(), removed_reason = 'moderation' WHERE id = 'k3x9mQ2a';
 ```
 
-It then reads as "not found" and can no longer be updated.
+It then reads as "not found" and can no longer be updated. Owners deleting their own scenarios are recorded with `removed_reason = 'owner'`, and deleted accounts with `'account-deleted'`.
 
 ### Moving to a custom domain later
 

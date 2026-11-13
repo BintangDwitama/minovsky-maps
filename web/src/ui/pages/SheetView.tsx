@@ -60,6 +60,8 @@ export interface SheetViewProps {
   link: string;
   /** Where the scenario lives, for the copy dialog's wording. */
   storedIn: 'link' | 'server';
+  /** Owner's display name of a published scenario (shown as the verified author). */
+  verifiedAuthor?: string | null;
   /** Edit / Edit a copy buttons, shown first. */
   editActions: ReactNode;
   /** Extra actions after Print (e.g. Report on published scenarios). */
@@ -77,6 +79,7 @@ export function SheetView({
   scenario: s,
   link,
   storedIn,
+  verifiedAuthor = null,
   editActions,
   trailingActions,
   extraOverlay,
@@ -117,7 +120,7 @@ export function SheetView({
           {trailingActions}
         </>
       }
-      intro={<SheetHeader scenario={s} />}
+      intro={<SheetHeader scenario={s} verifiedAuthor={verifiedAuthor} />}
       board={<SheetBoard scenario={s} />}
       details={
         <>

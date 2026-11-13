@@ -26,7 +26,10 @@ const json = (status: number, errors: string[]) =>
  * given, and keeps only the origin (any path or trailing slash is ignored). Null if unusable.
  */
 export const apiOrigin = (raw: string | undefined): string | null => {
-  const value = raw?.trim().replace(/^["']|["']$/g, '').trim();
+  const value = raw
+    ?.trim()
+    .replace(/^["']|["']$/g, '')
+    .trim();
   if (!value) return null;
   try {
     const url = new URL(/^https?:\/\//i.test(value) ? value : `https://${value}`);
@@ -36,14 +39,35 @@ export const apiOrigin = (raw: string | undefined): string | null => {
   }
 };
 
+/** Cookies the API sets (session and pending sign-in); no other cookie is forwarded. */
+const API_COOKIES = new Set(['mm_session', 'mm_login']);
+
+/** The Cookie header reduced to the API's own cookies, or null if none are present. */
+export const apiCookies = (raw: string | null): string | null => {
+  if (!raw) return null;
+  const kept = raw
+    .split(';')
+    .map((p) => p.trim())
+    .filter((p) => API_COOKIES.has(p.slice(0, p.indexOf('=')).trim()));
+  return kept.length ? kept.join('; ') : null;
+};
+
+/*
+ * Responses pass through unchanged, including several Set-Cookie headers and redirects
+ * (fetch uses redirect: 'manual', so a sign-in 302 reaches the browser, not this function).
+ */
 export const onRequest = async ({ request, env }: Context): Promise<Response> => {
   try {
     if (!env.API_ORIGIN?.trim()) {
-      return json(503, ['Publishing is not configured on this deployment (API_ORIGIN is not set).']);
+      return json(503, [
+        'Publishing is not configured on this deployment (API_ORIGIN is not set).',
+      ]);
     }
     const origin = apiOrigin(env.API_ORIGIN);
     if (!origin) {
-      return json(503, ['Publishing is misconfigured on this deployment (API_ORIGIN is not a valid URL).']);
+      return json(503, [
+        'Publishing is misconfigured on this deployment (API_ORIGIN is not a valid URL).',
+      ]);
     }
 
     const incoming = new URL(request.url);
@@ -51,7 +75,10 @@ export const onRequest = async ({ request, env }: Context): Promise<Response> =>
 
     const headers = new Headers(request.headers);
     headers.delete('host');
-    headers.delete('cookie'); // the API uses no cookies; don't forward any
+    // only the API's own cookies (session, pending sign-in) go through; anything else stays here
+    const cookie = apiCookies(request.headers.get('cookie'));
+    if (cookie) headers.set('cookie', cookie);
+    else headers.delete('cookie');
     headers.set('X-Forwarded-For', request.headers.get('CF-Connecting-IP') ?? '');
     headers.set('X-Forwarded-Host', incoming.host);
 

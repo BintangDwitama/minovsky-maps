@@ -9,7 +9,11 @@
 //	TURNSTILE_SECRET  Cloudflare Turnstile secret; enables the bot check on writes and reports
 //	RESEND_API_KEY    Resend API key; with REPORT_EMAIL, reports are emailed to the owner
 //	REPORT_EMAIL      where report emails go (the Resend account's own address)
-//	PUBLIC_APP_URL    public site address used for links in emails
+//	PUBLIC_APP_URL    public site address (links in emails; Google redirect = it + /api/auth/google/callback)
+//
+//	GOOGLE_CLIENT_ID      Google OAuth client id; with GOOGLE_CLIENT_SECRET enables sign-in with Google
+//	GOOGLE_CLIENT_SECRET  Google OAuth client secret
+//	DEV_FAKE_SIGNIN       "1" signs everyone in as a test user, only without DATABASE_URL (local testing)
 //
 // Locally, unset variables are also read from `.env.local` in the repo root (written by
 // `neon init` / `neon checkout`; points at the Neon dev branch). Real environment values win.
@@ -22,9 +26,11 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
+	"github.com/BintangDwitama/minovsky-maps/server/internal/accounts"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/devenv"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/httpapi"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/notify"
@@ -36,10 +42,11 @@ import (
 	"github.com/BintangDwitama/minovsky-maps/server/internal/turnstile"
 )
 
-// repository is what main needs from a store: publishing and reports storage plus a health ping.
+// repository is what main needs from a store: publishing, reports and accounts storage plus a health ping.
 type repository interface {
 	publishing.Repository
 	reports.Repository
+	accounts.Store
 	httpapi.Pinger
 }
 
@@ -121,6 +128,26 @@ func run(log *slog.Logger) error {
 	}
 	opts.Reports = reports.NewService(repo, notifier, log)
 
+	// sign-in with Google (publishing requires it)
+	var provider accounts.IdentityProvider
+	clientID, clientSecret := os.Getenv("GOOGLE_CLIENT_ID"), os.Getenv("GOOGLE_CLIENT_SECRET")
+	switch {
+	case clientID != "" && clientSecret != "":
+		appURL := strings.TrimRight(os.Getenv("PUBLIC_APP_URL"), "/")
+		if appURL == "" {
+			appURL = "http://localhost:5173" // the Vite dev server, which proxies /api here
+		}
+		provider = accounts.NewGoogle(clientID, clientSecret, appURL+"/api/auth/google/callback")
+		log.Info("sign-in with Google enabled", "redirect", appURL+"/api/auth/google/callback")
+	case os.Getenv("DEV_FAKE_SIGNIN") == "1" && os.Getenv("DATABASE_URL") == "":
+		provider = accounts.DevProvider{}
+		log.Warn("DEV_FAKE_SIGNIN: everyone signs in as a test user (in-memory store only)")
+	default:
+		log.Warn("GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET not set: sign-in and publishing are unavailable")
+	}
+	if provider != nil {
+		opts.Accounts = accounts.NewService(repo, provider, nil)
+	}
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"

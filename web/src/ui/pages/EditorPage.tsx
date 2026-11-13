@@ -2,10 +2,10 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { removeComponentCmd, resizeBoardCmd, rotateCarrierCmd } from '../../application/commands';
 import { EditorSession } from '../../application/editorSession';
 import {
-  editablePublication,
+  canUpdate,
+  deletePublished,
   editPublished,
   openPublished,
-  privateEditLink,
   publishScenario,
   shortLink,
   updatePublished,
@@ -41,6 +41,8 @@ import { renderBoardSvg } from '../export/renderBoardSvg';
 import { EditorProvider, type EditorServices, useEditor, useUi } from '../hooks/editorContext';
 import { kindDef } from '../../domain/components/registry';
 import { AnnouncerProvider, useAnnouncer } from '../hooks/useAnnouncer';
+import { useAccount } from '../hooks/useAccount';
+import { SignInDialog } from '../organisms/SignInDialog';
 import { useHistory } from '../hooks/useHistory';
 import { COMPACT_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
 import { SelectionBar } from '../organisms/SelectionBar';
@@ -127,6 +129,7 @@ type DialogState =
   | { kind: 'publish'; mode: 'publish' | 'update'; phase: PublishPhase }
   | { kind: 'busy'; title: string; slow: boolean }
   | { kind: 'my-scenarios'; revision: number }
+  | { kind: 'sign-in' }
   | { kind: 'errors'; title: string; intro: string; errors: string[] };
 
 const isTyping = (t: EventTarget | null) =>
@@ -148,8 +151,11 @@ function Editor({
   const announce = useAnnouncer();
   const uiState = useUi();
   const compact = useMediaQuery(COMPACT_QUERY);
+  const account = useAccount();
   const publishMode =
-    publication && publications.get(publication.id) ? ('update' as const) : ('publish' as const);
+    publication && (publication.owned || publications.get(publication.id))
+      ? ('update' as const)
+      : ('publish' as const);
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
   const close = useCallback(() => setDialog({ kind: 'none' }), []);
 
@@ -220,6 +226,11 @@ function Editor({
 
   /* ---- publish / update ---- */
   const publishFailed = (r: Extract<PublishingResult<object>, { ok: false }>) => {
+    // the session ended (or never existed): offer to sign in rather than an error
+    if (r.failure === 'signed-out') {
+      setDialog({ kind: 'sign-in' });
+      return;
+    }
     const msg = PUBLISH_FAILURE[r.failure];
     setDialog({
       kind: 'errors',
@@ -240,7 +251,7 @@ function Editor({
     setDialog({ kind: 'publish', mode, phase: { kind: 'working', slow: false } });
     const r =
       mode === 'publish'
-        ? await publishScenario(session, publisher, publications, { onSlow: markSlow })
+        ? await publishScenario(session, publisher, { onSlow: markSlow })
         : await updatePublished(session, publisher, publications, { onSlow: markSlow });
     if (!r.ok) {
       publishFailed(r);
@@ -251,15 +262,7 @@ function Editor({
     setDialog({
       kind: 'publish',
       mode,
-      phase: {
-        kind: 'done',
-        shortLink: link,
-        editLink:
-          mode === 'publish'
-            ? privateEditLink(appAddress(), r.publication.id, r.publication.editToken)
-            : null,
-        copied,
-      },
+      phase: { kind: 'done', shortLink: link, copied },
     });
   };
   const onPublish = () => {
@@ -269,7 +272,8 @@ function Editor({
       publishFailed({ ok: false, failure: 'blocked', errors: blockers });
       return;
     }
-    if (editablePublication(session, publications)) void runPublish('update');
+    if (canUpdate(session, publications)) void runPublish('update');
+    else if (!account.account) setDialog({ kind: 'sign-in' });
     else setDialog({ kind: 'publish', mode: 'publish', phase: { kind: 'confirm' } });
   };
 
@@ -296,10 +300,13 @@ function Editor({
 
   /* ---- draft restore + autosave (an "Edit a copy" import handles the draft itself) ---- */
   const importedAtMount = useRef(importLink !== null || publishedId !== null);
+  const signInResultRef = useRef(account.signInResult);
   useEffect(() => {
     if (!importedAtMount.current) {
       const draft = findDraft(drafts);
-      if (draft) setDialog({ kind: 'draft', draft });
+      // back from signing in: carry on with the same work, no question asked
+      if (draft && signInResultRef.current) restoreDraft(session, draft);
+      else if (draft) setDialog({ kind: 'draft', draft });
     }
     return startDraftAutosave(session, drafts);
   }, [session, drafts]);
@@ -360,7 +367,7 @@ function Editor({
         return;
       }
       const apply = () => {
-        editPublished(session, publishedId, r.scenario);
+        editPublished(session, publishedId, r.scenario, r.isOwner);
         resetView();
         setDialog({ kind: 'none' });
       };
@@ -577,7 +584,24 @@ function Editor({
 
           {dialog.kind === 'my-scenarios' ? (
             <MyScenariosDialog
-              scenarios={publications.list()}
+              source={
+                account.account
+                  ? {
+                      kind: 'account',
+                      load: () => account.service.listOwned(),
+                      onDelete: (id) => deletePublished(session, publisher, id),
+                    }
+                  : {
+                      kind: 'browser',
+                      scenarios: publications.list(),
+                      onForget: (id) => {
+                        publications.remove(id);
+                        // re-render the list (and the Publish/Update button) from the store
+                        setDialog({ kind: 'my-scenarios', revision: dialog.revision + 1 });
+                      },
+                      onSignIn: account.available ? () => account.signIn() : null,
+                    }
+              }
               shortLinkFor={(id) => shortLink(appAddress(), id)}
               onOpen={(id) => {
                 close();
@@ -588,10 +612,17 @@ function Editor({
                 navigate(editPublishedHash(id));
               }}
               onCopy={(id) => clipboard.writeText(shortLink(appAddress(), id))}
-              onForget={(id) => {
-                publications.remove(id);
-                // re-render the list (and the Publish/Update button) from the store
-                setDialog({ kind: 'my-scenarios', revision: dialog.revision + 1 });
+              onClose={close}
+            />
+          ) : null}
+
+          {dialog.kind === 'sign-in' ? (
+            <SignInDialog
+              reason="Publishing gives your scenario a short link that you can keep updating from any device. Sign in with your Google account to publish."
+              available={account.available}
+              onSignIn={() => {
+                session.commit();
+                account.signIn();
               }}
               onClose={close}
             />

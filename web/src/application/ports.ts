@@ -47,7 +47,9 @@ export interface Clipboard {
 export type ApiFailure =
   | 'invalid' // 400/413/422: the scenario or request was rejected
   | 'not-found' // 404: unknown or taken-down scenario
-  | 'forbidden' // 401/403: missing or wrong edit token
+  | 'forbidden' // 401/403: missing or wrong legacy edit token
+  | 'signed-out' // 401: the action needs a signed-in account
+  | 'not-owner' // 403: signed in, but not as the scenario's owner
   | 'rate-limited' // 429
   | 'bot' // the human check failed or couldn't run
   | 'unavailable'; // network error, timeout, 5xx
@@ -60,28 +62,66 @@ export interface CallOptions {
   onSlow?: () => void;
 }
 
+/** A published scenario as read by anyone; `owner` is the verified author of owned scenarios. */
+export interface PublishedRead {
+  readonly scenario: unknown;
+  readonly updatedAt: string;
+  readonly owner: { readonly displayName: string } | null;
+  /** The signed-in account owns it. */
+  readonly isOwner: boolean;
+}
+
 export interface ScenarioPublisher {
-  publish(
-    s: Scenario,
-    opts?: CallOptions,
-  ): Promise<ApiResult<{ id: string; editToken: string; updatedAt: string }>>;
+  /** Publish as the signed-in account (the session cookie travels with the request). */
+  publish(s: Scenario, opts?: CallOptions): Promise<ApiResult<{ id: string; updatedAt: string }>>;
+  /** Update as the owner (editToken null) or with a legacy edit token. */
   update(
     id: string,
-    editToken: string,
+    editToken: string | null,
     s: Scenario,
     opts?: CallOptions,
   ): Promise<ApiResult<{ updatedAt: string }>>;
   /** The latest version, as an unvalidated document (callers run `loadScenario`). */
-  fetch(
-    id: string,
-    opts?: CallOptions,
-  ): Promise<ApiResult<{ scenario: unknown; updatedAt: string }>>;
+  fetch(id: string, opts?: CallOptions): Promise<ApiResult<PublishedRead>>;
+  /** Take down a scenario the signed-in account owns. */
+  remove(id: string, opts?: CallOptions): Promise<ApiResult<object>>;
   /** Report a published scenario to the site owner. */
   report(input: ReportInput, opts?: CallOptions): Promise<ApiResult<{ received: boolean }>>;
   /** Fire-and-forget request that starts a sleeping server early. Never throws. */
   wake(): void;
 }
 
+/* ---------------- accounts (API) ---------------- */
+
+export interface Account {
+  readonly id: number;
+  readonly displayName: string;
+}
+
+export interface AccountStatus {
+  /** Sign-in is configured on this server. */
+  readonly available: boolean;
+  readonly account: Account | null;
+}
+
+export interface OwnedScenario {
+  readonly id: string;
+  readonly name: string;
+  readonly updatedAt: string;
+}
+
+/** Sign-in with Google and the signed-in account's data. */
+export interface AccountService {
+  status(opts?: CallOptions): Promise<ApiResult<AccountStatus>>;
+  /** Where to send the browser to sign in; it comes back to `returnPath` (an app path). */
+  signInUrl(returnPath: string): string;
+  signOut(): Promise<ApiResult<object>>;
+  rename(displayName: string): Promise<ApiResult<Account>>;
+  deleteAccount(): Promise<ApiResult<object>>;
+  listOwned(opts?: CallOptions): Promise<ApiResult<OwnedScenario[]>>;
+  /** Claim legacy scenarios by their edit tokens; resolves the ids claimed. */
+  claim(items: readonly { id: string; token: string }[]): Promise<ApiResult<string[]>>;
+}
 export type ReportReason = 'official-copy' | 'offensive' | 'spam' | 'broken' | 'other';
 
 export interface ReportInput {
@@ -98,14 +138,14 @@ export interface HumanCheck {
   token(): Promise<string | null>;
 }
 
-/** A scenario this browser can edit. */
+/** A legacy (pre-accounts) scenario this browser holds an edit token for. */
 export interface Publication {
   readonly id: string;
   readonly editToken: string;
   readonly name: string;
 }
 
-/** Edit tokens remembered by this browser. Implementations must never throw. */
+/** Legacy edit tokens remembered by this browser, until claimed. Implementations must never throw. */
 export interface PublicationStore {
   get(id: string): Publication | null;
   save(p: Publication): void;
