@@ -10,6 +10,7 @@ import type {
   CallOptions,
   Publication,
   PublicationStore,
+  ReportReason,
   ScenarioPublisher,
 } from './ports';
 import { saveBlockers } from './useCases';
@@ -96,6 +97,28 @@ export const openPublished = async (
 /** Open a published scenario in the editor as that published document (Update available). */
 export const editPublished = (session: EditorSession, id: string, s: Scenario): void => {
   session.reset(s, { publication: { id } });
+};
+
+export const REPORT_DETAILS_MAX = 1000;
+
+/** Report a published scenario to the site owner. */
+export const reportScenario = async (
+  publisher: ScenarioPublisher,
+  input: { scenarioId: string; reason: ReportReason | null; details: string },
+  opts?: CallOptions,
+): Promise<PublishingResult<object>> => {
+  if (!input.reason) {
+    return { ok: false, failure: 'blocked', errors: ['Choose a reason for the report.'] };
+  }
+  const details = input.details.trim();
+  if ([...details].length > REPORT_DETAILS_MAX) {
+    return { ok: false, failure: 'blocked', errors: ['Details can be at most 1,000 characters.'] };
+  }
+  const r = await publisher.report(
+    { scenarioId: input.scenarioId, reason: input.reason, details },
+    opts,
+  );
+  return r.ok ? { ok: true } : r;
 };
 
 /** Remember an edit token that arrived through a private edit link. */

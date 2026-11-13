@@ -61,6 +61,8 @@ Links are permanent. The `1.` prefix is the link format version; never change ho
 - There are no accounts. Publishing returns a secret edit token. The server stores only its hash; this browser remembers it, and a **private edit link** (`/s/<id>#edit=<token>`) is shown once so you can edit from another device. Anyone with that link can update the scenario.
 - Every update is kept as a version; reads return the newest.
 - The API validates with the same JSON Schema and integrity rules as the editor.
+- **My scenarios** in the editor lists everything this browser can update (Open, Edit, Copy link, Forget).
+- Publish, Update and **Report** are protected by Cloudflare Turnstile (a free, mostly invisible bot check). Reports from the **Report** button on a published sheet are stored and emailed to the site owner.
 
 ## Deploying (all free, no payment card)
 
@@ -105,6 +107,32 @@ Vercel's Go runtime is in beta; it runs our ordinary `net/http` server, so movin
 4. Name the project `minovsky-maps` to get `https://minovsky-maps.pages.dev`.
 
 Every push to `main` deploys; other branches get their own preview address, and publishing works there too.
+
+### 4. Bot check: Cloudflare Turnstile (free)
+
+1. Cloudflare dashboard → **Turnstile** → **Add widget**. Name it `minovsky-maps`, add the hostname `minovsky-maps.pages.dev` (and `localhost` if you want to test locally), widget mode **Managed**.
+2. Copy the **Site key** → Cloudflare Pages → Settings → Variables: `VITE_TURNSTILE_SITE_KEY` (used at build time, so redeploy Pages afterwards).
+3. Copy the **Secret key** → Vercel → Settings → Environment Variables: `TURNSTILE_SECRET` (then redeploy).
+
+Without these, publishing still works but isn't bot-checked (the server logs a warning). For local testing, Cloudflare's documented test keys work: site key `1x00000000000000000000BB` (always passes, invisible) with secret `1x0000000000000000000000000000000AA`.
+
+### 5. Report emails: Resend (free, no domain needed)
+
+1. Sign up at **resend.com** (GitHub or Google sign-in is fine) using the email address that should receive reports.
+2. **API Keys** → create a key with "Sending access".
+3. Vercel → Environment Variables:
+   | Variable | Value |
+   |---|---|
+   | `RESEND_API_KEY` | the key |
+   | `REPORT_EMAIL` | the same address you signed up to Resend with (Resend's shared sender may only deliver to it) |
+   | `PUBLIC_APP_URL` | `https://minovsky-maps.pages.dev` |
+4. Redeploy Vercel. Optional Gmail filter: *Subject contains* `[Minovsky Maps] Report:` → apply a label such as "Minovsky reports".
+
+Your address only lives in Vercel's settings; it never appears on the site. Without these settings, reports are still stored in the `reports` table but not emailed:
+
+```sql
+SELECT r.created_at, r.scenario_id, r.reason, r.details FROM reports r ORDER BY r.created_at DESC;
+```
 
 ### Taking a scenario down
 

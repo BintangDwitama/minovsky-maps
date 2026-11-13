@@ -11,6 +11,7 @@ export interface ToolbarProps {
   onPublish(): void;
   /** Update when the open document is a published scenario this browser can edit. */
   publishMode: 'publish' | 'update';
+  onMyScenarios(): void;
 }
 
 /** The navy frame along the top: brand, file actions, history, scenario title. */
@@ -22,6 +23,7 @@ export function Toolbar({
   onExport,
   onPublish,
   publishMode,
+  onMyScenarios,
 }: ToolbarProps) {
   const { session } = useServices();
   const { scenario, canUndo, canRedo, dirty, undoLabel, redoLabel } = useEditor();
@@ -61,6 +63,14 @@ export function Toolbar({
         }
       >
         {publishMode === 'update' ? 'Update' : 'Publish'}
+      </Button>
+      <Button
+        variant="frame"
+        icon="list"
+        onClick={onMyScenarios}
+        title="Scenarios published from this browser"
+      >
+        My scenarios
       </Button>
       <Button variant="frame" icon="image" onClick={onExport}>
         Export PNG

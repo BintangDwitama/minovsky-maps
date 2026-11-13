@@ -31,6 +31,15 @@ export class LocalStoragePublicationStore implements PublicationStore {
     return this.list().find((p) => p.id === id) ?? null;
   }
 
+  remove(id: string): void {
+    try {
+      const rest = this.list().filter((x) => x.id !== id);
+      this.storage()?.setItem(this.key, JSON.stringify(rest));
+    } catch {
+      /* best effort */
+    }
+  }
+
   save(p: Publication): void {
     try {
       const rest = this.list().filter((x) => x.id !== p.id);

@@ -137,6 +137,50 @@ func (s *Store) Latest(ctx context.Context, id string) (publishing.Record, error
 	return rec, nil
 }
 
+// ScenarioName returns the latest version's name; ErrNotFound for unknown or taken-down scenarios.
+func (s *Store) ScenarioName(ctx context.Context, id string) (string, error) {
+	var (
+		name      *string
+		takenDown *time.Time
+	)
+	err := s.pool.QueryRow(ctx, `
+		SELECT v.doc->'meta'->>'name', s.taken_down_at
+		FROM scenarios s
+		JOIN LATERAL (
+			SELECT doc FROM scenario_versions
+			WHERE scenario_id = s.id ORDER BY id DESC LIMIT 1
+		) v ON true
+		WHERE s.id = $1`, id).Scan(&name, &takenDown)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && takenDown != nil) {
+		return "", publishing.ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	if name == nil {
+		return "", nil
+	}
+	return *name, nil
+}
+
+// AddReport stores a report.
+func (s *Store) AddReport(ctx context.Context, scenarioID, reason, details string) (int64, time.Time, error) {
+	var (
+		id int64
+		at time.Time
+	)
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO reports (scenario_id, reason, details) VALUES ($1, $2, $3) RETURNING id, created_at`,
+		scenarioID, reason, details).Scan(&id, &at)
+	return id, at, err
+}
+
+// MarkEmailed records that the owner was notified.
+func (s *Store) MarkEmailed(ctx context.Context, id int64) error {
+	_, err := s.pool.Exec(ctx, `UPDATE reports SET emailed_at = now() WHERE id = $1`, id)
+	return err
+}
+
 func (s *Store) AddVersion(ctx context.Context, id string, doc json.RawMessage, schemaVersion int) (time.Time, error) {
 	var at time.Time
 	err := s.pool.QueryRow(ctx,

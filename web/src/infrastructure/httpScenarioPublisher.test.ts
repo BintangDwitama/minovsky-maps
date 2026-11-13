@@ -73,6 +73,53 @@ describe('HttpScenarioPublisher', () => {
     expect(await offline.fetch('abcdEFG1')).toMatchObject({ ok: false, failure: 'unavailable' });
   });
 
+  it('sends a fresh bot-check token with every write', async () => {
+    let n = 0;
+    const humanCheck = { token: async () => `tok${++n}` };
+    const fetchImpl = vi.fn(async () =>
+      json(201, { id: 'abcdEFG1', editToken: 't', updatedAt: 'x' }),
+    );
+    const p = new HttpScenarioPublisher({ fetchImpl, humanCheck });
+    await p.publish(createScenario());
+    await p.update('abcdEFG1', 'secret', createScenario());
+    await p.report({ scenarioId: 'abcdEFG1', reason: 'spam', details: '' });
+    await p.fetch('abcdEFG1');
+    const bodies = fetchImpl.mock.calls.map((c) => {
+      const init = (c as unknown as [string, RequestInit])[1];
+      return init.body ? JSON.parse(init.body as string) : null;
+    });
+    expect(bodies.slice(0, 3).map((b) => b.turnstileToken)).toEqual(['tok1', 'tok2', 'tok3']);
+    expect(bodies[3]).toBeNull(); // reads are not checked
+  });
+
+  it('reports a bot-check failure from the server and a blocked check script', async () => {
+    const rejected = new HttpScenarioPublisher({
+      fetchImpl: vi.fn(async () => json(403, { code: 'bot-check', errors: ['Could not confirm'] })),
+    });
+    expect(await rejected.publish(createScenario())).toEqual({
+      ok: false,
+      failure: 'bot',
+      errors: ['Could not confirm'],
+    });
+    const fetchImpl = vi.fn();
+    const blocked = new HttpScenarioPublisher({
+      fetchImpl,
+      humanCheck: { token: () => Promise.reject(new Error('blocked')) },
+    });
+    const r = await blocked.publish(createScenario());
+    expect(r).toMatchObject({ ok: false, failure: 'bot' });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('a 403 without the bot code still means a wrong edit token', async () => {
+    const p = new HttpScenarioPublisher({
+      fetchImpl: vi.fn(async () => json(403, { errors: ['no'] })),
+    });
+    expect(await p.update('abcdEFG1', 'x', createScenario())).toMatchObject({
+      failure: 'forbidden',
+    });
+  });
+
   it('wake never throws', () => {
     const p = new HttpScenarioPublisher({ fetchImpl: () => Promise.reject(new Error('down')) });
     expect(() => p.wake()).not.toThrow();
@@ -118,5 +165,23 @@ describe('LocalStoragePublicationStore', () => {
     expect(new LocalStoragePublicationStore('k', () => corrupt).list()).toEqual([]);
     corrupt.setItem('k', JSON.stringify([{ id: 1 }, { id: 'ok', editToken: 't', name: '' }]));
     expect(new LocalStoragePublicationStore('k', () => corrupt).list()).toHaveLength(1);
+  });
+
+  it('removes one scenario and never throws', () => {
+    const storage = memory();
+    const s = new LocalStoragePublicationStore('k', () => storage);
+    s.save({ id: 'a', editToken: '1', name: 'A' });
+    s.save({ id: 'b', editToken: '2', name: 'B' });
+    s.remove('a');
+    expect(s.list().map((p) => p.id)).toEqual(['b']);
+    s.remove('missing');
+    expect(s.list()).toHaveLength(1);
+    const broken = {
+      getItem: () => '[]',
+      setItem: () => {
+        throw new Error('quota');
+      },
+    } as unknown as Storage;
+    expect(() => new LocalStoragePublicationStore('k', () => broken).remove('b')).not.toThrow();
   });
 });

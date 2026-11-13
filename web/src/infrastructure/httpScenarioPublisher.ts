@@ -1,4 +1,11 @@
-import type { ApiFailure, ApiResult, CallOptions, ScenarioPublisher } from '../application/ports';
+import type {
+  ApiFailure,
+  ApiResult,
+  CallOptions,
+  HumanCheck,
+  ReportInput,
+  ScenarioPublisher,
+} from '../application/ports';
 import type { Scenario } from '../domain/scenario';
 
 export interface HttpPublisherOptions {
@@ -9,9 +16,12 @@ export interface HttpPublisherOptions {
   /** When to report "slow" (probably waking up). */
   slowAfterMs?: number;
   fetchImpl?: typeof fetch;
+  /** Bot check for publish, update and report; omitted = no token sent. */
+  humanCheck?: HumanCheck;
 }
 
-const failureFor = (status: number): ApiFailure => {
+const failureFor = (status: number, code: string | undefined): ApiFailure => {
+  if (code === 'bot-check') return 'bot';
   if (status === 404) return 'not-found';
   if (status === 401 || status === 403) return 'forbidden';
   if (status === 429) return 'rate-limited';
@@ -19,22 +29,27 @@ const failureFor = (status: number): ApiFailure => {
   return 'unavailable';
 };
 
+const BOT_CHECK_FAILED =
+  'The bot check could not run. If you use an ad or script blocker, allow challenges.cloudflare.com, then try again.';
+
 /** Talks to the Go API at `/api` (same origin; Cloudflare forwards it). Never throws. */
 export class HttpScenarioPublisher implements ScenarioPublisher {
   private readonly base: string;
   private readonly timeoutMs: number;
   private readonly slowAfterMs: number;
   private readonly fetchImpl: typeof fetch;
+  private readonly humanCheck: HumanCheck | undefined;
 
   constructor(opts: HttpPublisherOptions = {}) {
     this.base = opts.base ?? '/api';
     this.timeoutMs = opts.timeoutMs ?? 90_000;
     this.slowAfterMs = opts.slowAfterMs ?? 3_000;
     this.fetchImpl = opts.fetchImpl ?? ((...args) => globalThis.fetch(...args));
+    this.humanCheck = opts.humanCheck;
   }
 
   publish(s: Scenario, opts?: CallOptions) {
-    return this.call<{ id: string; editToken: string; updatedAt: string }>(
+    return this.checked<{ id: string; editToken: string; updatedAt: string }>(
       'POST',
       '/scenarios',
       { scenario: s },
@@ -44,13 +59,17 @@ export class HttpScenarioPublisher implements ScenarioPublisher {
   }
 
   update(id: string, editToken: string, s: Scenario, opts?: CallOptions) {
-    return this.call<{ updatedAt: string }>(
+    return this.checked<{ updatedAt: string }>(
       'PUT',
       `/scenarios/${encodeURIComponent(id)}`,
       { scenario: s },
       editToken,
       opts,
     );
+  }
+
+  report(input: ReportInput, opts?: CallOptions) {
+    return this.checked<{ received: boolean }>('POST', '/reports', { ...input }, undefined, opts);
   }
 
   fetch(id: string, opts?: CallOptions) {
@@ -67,11 +86,29 @@ export class HttpScenarioPublisher implements ScenarioPublisher {
     void this.fetchImpl(`${this.base}/health`, { method: 'GET' }).catch(() => undefined);
   }
 
+  /** A write: get a fresh bot-check token first and send it in the body. */
+  private async checked<T>(
+    method: string,
+    path: string,
+    body: Record<string, unknown>,
+    editToken: string | undefined,
+    opts: CallOptions | undefined,
+  ): Promise<ApiResult<T>> {
+    let turnstileToken: string | null = null;
+    try {
+      turnstileToken = (await this.humanCheck?.token()) ?? null;
+    } catch {
+      return { ok: false, failure: 'bot', errors: [BOT_CHECK_FAILED] };
+    }
+    const withToken = turnstileToken ? { ...body, turnstileToken } : body;
+    return this.call<T>(method, path, withToken, editToken, opts);
+  }
+
   private async call<T>(
     method: string,
     path: string,
     body: unknown,
-    token: string | undefined,
+    editToken: string | undefined,
     opts: CallOptions | undefined,
   ): Promise<ApiResult<T>> {
     const controller = new AbortController();
@@ -80,7 +117,7 @@ export class HttpScenarioPublisher implements ScenarioPublisher {
     try {
       const headers: Record<string, string> = { Accept: 'application/json' };
       if (body !== undefined) headers['Content-Type'] = 'application/json';
-      if (token) headers.Authorization = `Bearer ${token}`;
+      if (editToken) headers.Authorization = `Bearer ${editToken}`;
       const res = await this.fetchImpl(`${this.base}${path}`, {
         method,
         headers,
@@ -88,11 +125,12 @@ export class HttpScenarioPublisher implements ScenarioPublisher {
         signal: controller.signal,
         cache: 'no-store',
       });
-      const data = (await res.json().catch(() => null)) as (T & { errors?: string[] }) | null;
+      const data = (await res.json().catch(() => null)) as
+        (T & { errors?: string[]; code?: string }) | null;
       if (res.ok && data) return { ok: true, value: data };
       return {
         ok: false,
-        failure: failureFor(res.status),
+        failure: failureFor(res.status, data?.code),
         errors: data?.errors?.length ? data.errors : [`The server answered ${res.status}.`],
       };
     } catch (e) {

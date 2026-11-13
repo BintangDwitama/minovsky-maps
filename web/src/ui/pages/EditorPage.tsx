@@ -32,6 +32,7 @@ import { BrowserClipboard } from '../../infrastructure/browserClipboard';
 import { BrowserFileReader, DownloadFileWriter } from '../../infrastructure/browserFiles';
 import { FflateCompressor } from '../../infrastructure/fflateCompressor';
 import { HttpScenarioPublisher } from '../../infrastructure/httpScenarioPublisher';
+import { TurnstileHumanCheck } from '../../infrastructure/turnstileHumanCheck';
 import { LocalStorageDraftStore } from '../../infrastructure/localStorageDraftStore';
 import { LocalStoragePublicationStore } from '../../infrastructure/localStoragePublicationStore';
 import { RandomIdGenerator } from '../../infrastructure/randomIds';
@@ -49,7 +50,15 @@ import {
   type PublishPhase,
 } from '../organisms/dialogs';
 import { PUBLISH_FAILURE } from '../publishMessages';
-import { appAddress, goToPath, navigate, replaceHashSilently, viewHash } from '../router';
+import { MyScenariosDialog } from '../organisms/MyScenariosDialog';
+import {
+  appAddress,
+  editPublishedHash,
+  goToPath,
+  navigate,
+  replaceHashSilently,
+  viewHash,
+} from '../router';
 import { GoalsEditor } from '../organisms/GoalsEditor';
 import { HexBoard } from '../organisms/HexBoard';
 import { AnalysisPanel } from '../organisms/AnalysisPanel';
@@ -72,7 +81,9 @@ const buildServices = (): EditorServices => ({
   exporter: new SvgPngExporter(renderBoardSvg),
   compressor: new FflateCompressor(),
   clipboard: new BrowserClipboard(),
-  publisher: new HttpScenarioPublisher(),
+  publisher: new HttpScenarioPublisher({
+    humanCheck: new TurnstileHumanCheck(import.meta.env.VITE_TURNSTILE_SITE_KEY),
+  }),
   publications: new LocalStoragePublicationStore(),
 });
 
@@ -103,6 +114,7 @@ type DialogState =
   | { kind: 'replace-with-shared'; scenario: Scenario; apply(): void; back(): void }
   | { kind: 'publish'; mode: 'publish' | 'update'; phase: PublishPhase }
   | { kind: 'busy'; title: string; slow: boolean }
+  | { kind: 'my-scenarios'; revision: number }
   | { kind: 'errors'; title: string; intro: string; errors: string[] };
 
 const isTyping = (t: EventTarget | null) =>
@@ -418,6 +430,7 @@ function Editor({
           onShare={() => void onShare()}
           onExport={() => void onExport()}
           onPublish={onPublish}
+          onMyScenarios={() => setDialog({ kind: 'my-scenarios', revision: 0 })}
           publishMode={publishMode}
         />
       }
@@ -530,6 +543,28 @@ function Editor({
               name={session.scenario.meta.name}
               phase={dialog.phase}
               onConfirm={() => void runPublish('publish')}
+              onClose={close}
+            />
+          ) : null}
+
+          {dialog.kind === 'my-scenarios' ? (
+            <MyScenariosDialog
+              scenarios={publications.list()}
+              shortLinkFor={(id) => shortLink(appAddress(), id)}
+              onOpen={(id) => {
+                close();
+                goToPath(`/s/${id}`);
+              }}
+              onEdit={(id) => {
+                close();
+                navigate(editPublishedHash(id));
+              }}
+              onCopy={(id) => clipboard.writeText(shortLink(appAddress(), id))}
+              onForget={(id) => {
+                publications.remove(id);
+                // re-render the list (and the Publish/Update button) from the store
+                setDialog({ kind: 'my-scenarios', revision: dialog.revision + 1 });
+              }}
               onClose={close}
             />
           ) : null}

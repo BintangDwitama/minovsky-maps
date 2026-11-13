@@ -28,6 +28,8 @@ const PATHS = {
   download: 'M12 4v11 M7 10l5 5 5-5 M5 20h14',
   edit: 'M4 20h4L19 9l-4-4L4 16z M13.5 6.5l4 4',
   upload: 'M12 16V5 M7 10l5-5 5 5 M5 20h14',
+  flag: 'M5 21V4 M5 4h11l-2 4 2 4H5',
+  list: 'M9 6h11 M9 12h11 M9 18h11 M4 6h0.01 M4 12h0.01 M4 18h0.01',
   eye: 'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z M12 9a3 3 0 1 0 0.01 0',
 } as const;
 

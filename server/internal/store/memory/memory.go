@@ -24,9 +24,10 @@ type scenario struct {
 
 // Store keeps everything in a map. Safe for concurrent use.
 type Store struct {
-	mu   sync.Mutex
-	data map[string]*scenario
-	now  func() time.Time
+	mu      sync.Mutex
+	data    map[string]*scenario
+	reports []StoredReport
+	now     func() time.Time
 }
 
 // New returns an empty store using the real clock.
@@ -69,6 +70,60 @@ func (s *Store) AddVersion(_ context.Context, id string, doc json.RawMessage, sc
 	at := s.now()
 	sc.versions = append(sc.versions, version{clone(doc), schemaVersion, at})
 	return at, nil
+}
+
+// StoredReport is a report kept in memory (tests and local runs).
+type StoredReport struct {
+	ID         int64
+	ScenarioID string
+	Reason     string
+	Details    string
+	At         time.Time
+	Emailed    bool
+}
+
+// ScenarioName returns the latest version's name; ErrNotFound for unknown or taken-down scenarios.
+func (s *Store) ScenarioName(_ context.Context, id string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sc, ok := s.data[id]
+	if !ok || sc.takenDown {
+		return "", publishing.ErrNotFound
+	}
+	var doc struct {
+		Meta struct{ Name string } `json:"meta"`
+	}
+	_ = json.Unmarshal(sc.versions[len(sc.versions)-1].doc, &doc)
+	return doc.Meta.Name, nil
+}
+
+// AddReport stores a report.
+func (s *Store) AddReport(_ context.Context, scenarioID, reason, details string) (int64, time.Time, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	at := s.now()
+	r := StoredReport{ID: int64(len(s.reports) + 1), ScenarioID: scenarioID, Reason: reason, Details: details, At: at}
+	s.reports = append(s.reports, r)
+	return r.ID, at, nil
+}
+
+// MarkEmailed records that the owner was notified.
+func (s *Store) MarkEmailed(_ context.Context, id int64) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.reports {
+		if s.reports[i].ID == id {
+			s.reports[i].Emailed = true
+		}
+	}
+	return nil
+}
+
+// Reports returns a copy of all stored reports (tests).
+func (s *Store) Reports() []StoredReport {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]StoredReport(nil), s.reports...)
 }
 
 // Ping always succeeds.

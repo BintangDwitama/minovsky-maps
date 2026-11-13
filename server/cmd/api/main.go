@@ -6,6 +6,11 @@
 //	DATABASE_URL  Postgres connection string (Neon). If empty, an in-memory store is used —
 //	              fine for local development, never for production (data is lost on restart).
 //
+//	TURNSTILE_SECRET  Cloudflare Turnstile secret; enables the bot check on writes and reports
+//	RESEND_API_KEY    Resend API key; with REPORT_EMAIL, reports are emailed to the owner
+//	REPORT_EMAIL      where report emails go (the Resend account's own address)
+//	PUBLIC_APP_URL    public site address used for links in emails
+//
 // Locally, unset variables are also read from `.env.local` in the repo root (written by
 // `neon init` / `neon checkout`; points at the Neon dev branch). Real environment values win.
 package main
@@ -22,16 +27,31 @@ import (
 
 	"github.com/BintangDwitama/minovsky-maps/server/internal/devenv"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/httpapi"
+	"github.com/BintangDwitama/minovsky-maps/server/internal/notify"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/publishing"
+	"github.com/BintangDwitama/minovsky-maps/server/internal/reports"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/scenario"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/store/memory"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/store/postgres"
+	"github.com/BintangDwitama/minovsky-maps/server/internal/turnstile"
 )
 
-// repository is what main needs from a store: the service's Repository plus a health ping.
+// repository is what main needs from a store: publishing and reports storage plus a health ping.
 type repository interface {
 	publishing.Repository
+	reports.Repository
 	httpapi.Pinger
+}
+
+// botCheck adapts the Turnstile verifier to the API's BotCheck (mapping its rejection error).
+type botCheck struct{ v *turnstile.Verifier }
+
+func (b botCheck) Verify(ctx context.Context, token, ip string) error {
+	err := b.v.Verify(ctx, token, ip)
+	if errors.Is(err, turnstile.ErrRejected) {
+		return httpapi.ErrBot
+	}
+	return err
 }
 
 func main() {
@@ -76,13 +96,38 @@ func run(log *slog.Logger) error {
 		log.Warn("DATABASE_URL not set: using in-memory store (data is lost on restart)")
 	}
 
+	opts := httpapi.Options{Logger: log}
+
+	// bot check (Cloudflare Turnstile) on publish, update and report
+	if secret := os.Getenv("TURNSTILE_SECRET"); secret != "" {
+		opts.Bot = botCheck{turnstile.New(secret)}
+		log.Info("bot check enabled")
+	} else {
+		log.Warn("TURNSTILE_SECRET not set: publish, update and report are not bot-checked")
+	}
+
+	// reports, emailed to the owner through Resend when configured
+	var notifier reports.Notifier = reports.NoNotifier{}
+	apiKey, reportTo := os.Getenv("RESEND_API_KEY"), os.Getenv("REPORT_EMAIL")
+	if apiKey != "" && reportTo != "" {
+		resend := notify.NewResend(apiKey, reportTo, os.Getenv("PUBLIC_APP_URL"))
+		if endpoint := os.Getenv("RESEND_API_URL"); endpoint != "" {
+			resend = resend.WithEndpoint(endpoint) // testing against a local fake
+		}
+		notifier = resend
+		log.Info("report emails enabled")
+	} else {
+		log.Warn("RESEND_API_KEY or REPORT_EMAIL not set: reports are stored but not emailed")
+	}
+	opts.Reports = reports.NewService(repo, notifier, log)
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
 	srv := &http.Server{
 		Addr:              ":" + port,
-		Handler:           httpapi.New(publishing.NewService(repo, validator), repo, httpapi.Options{Logger: log}),
+		Handler:           httpapi.New(publishing.NewService(repo, validator), repo, opts),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,

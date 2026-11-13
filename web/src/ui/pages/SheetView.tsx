@@ -61,6 +61,10 @@ export interface SheetViewProps {
   storedIn: 'link' | 'server';
   /** Edit / Edit a copy buttons, shown first. */
   editActions: ReactNode;
+  /** Extra actions after Print (e.g. Report on published scenarios). */
+  trailingActions?: ReactNode;
+  /** Extra dialogs owned by the page. */
+  extraOverlay?: ReactNode;
   services: SheetServices;
 }
 
@@ -68,7 +72,15 @@ type Dialog =
   { kind: 'none' } | { kind: 'link'; copied: boolean } | { kind: 'error'; message: string };
 
 /** The read-only scenario sheet with its actions (shared by share links and published scenarios). */
-export function SheetView({ scenario: s, link, storedIn, editActions, services }: SheetViewProps) {
+export function SheetView({
+  scenario: s,
+  link,
+  storedIn,
+  editActions,
+  trailingActions,
+  extraOverlay,
+  services,
+}: SheetViewProps) {
   const [dialog, setDialog] = useState<Dialog>({ kind: 'none' });
   const close = () => setDialog({ kind: 'none' });
   useDocumentTitle(`${s.meta.name} – Minovsky Maps`);
@@ -101,6 +113,7 @@ export function SheetView({ scenario: s, link, storedIn, editActions, services }
           <Button variant="frame" icon="print" onClick={() => window.print()}>
             Print
           </Button>
+          {trailingActions}
         </>
       }
       intro={<SheetHeader scenario={s} />}
@@ -139,6 +152,7 @@ export function SheetView({ scenario: s, link, storedIn, editActions, services }
               {dialog.message}
             </ConfirmDialog>
           ) : null}
+          {extraOverlay}
         </>
       }
     />

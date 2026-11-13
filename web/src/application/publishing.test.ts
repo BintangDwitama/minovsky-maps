@@ -17,6 +17,7 @@ import {
   privateEditLink,
   publishScenario,
   rememberEditToken,
+  reportScenario,
   shortLink,
   updatePublished,
 } from './publishing';
@@ -56,6 +57,17 @@ class FakeApi implements ScenarioPublisher {
       value: { scenario: JSON.parse(JSON.stringify(d.versions.at(-1))), updatedAt: 't' },
     };
   }
+  reports: { scenarioId: string; reason: string; details: string }[] = [];
+  async report(input: {
+    scenarioId: string;
+    reason: string;
+    details: string;
+  }): Promise<ApiResult<{ received: boolean }>> {
+    if (!this.docs.has(input.scenarioId))
+      return { ok: false, failure: 'not-found', errors: ['nf'] };
+    this.reports.push(input);
+    return { ok: true, value: { received: true } };
+  }
   wake() {}
 }
 
@@ -64,6 +76,7 @@ class MemoryStore implements PublicationStore {
   get = (id: string) => this.items.get(id) ?? null;
   save = (p: Publication) => void this.items.set(p.id, p);
   list = () => [...this.items.values()];
+  remove = (id: string) => void this.items.delete(id);
 }
 
 describe('publishing use cases', () => {
@@ -150,6 +163,43 @@ describe('publishing use cases', () => {
     expect(privateEditLink('https://m.pages.dev', 'abcdEFG1', 'tok')).toBe(
       'https://m.pages.dev/s/abcdEFG1#edit=tok',
     );
+  });
+});
+
+describe('reportScenario', () => {
+  it('sends a report with trimmed details', async () => {
+    const api = new FakeApi();
+    const pub = await publishScenario(new EditorSession(sample()), api, new MemoryStore());
+    if (!pub.ok) throw new Error();
+    const r = await reportScenario(api, {
+      scenarioId: pub.publication.id,
+      reason: 'official-copy',
+      details: '  starter map  ',
+    });
+    expect(r.ok).toBe(true);
+    expect(api.reports).toEqual([
+      { scenarioId: pub.publication.id, reason: 'official-copy', details: 'starter map' },
+    ]);
+  });
+
+  it('requires a reason and at most 1,000 characters, without calling the API', async () => {
+    const api = new FakeApi();
+    expect(await reportScenario(api, { scenarioId: 'x', reason: null, details: '' })).toMatchObject(
+      {
+        ok: false,
+        failure: 'blocked',
+      },
+    );
+    expect(
+      await reportScenario(api, { scenarioId: 'x', reason: 'spam', details: 'é'.repeat(1001) }),
+    ).toMatchObject({ ok: false, failure: 'blocked' });
+    expect(api.reports).toHaveLength(0);
+  });
+
+  it('passes API failures through', async () => {
+    expect(
+      await reportScenario(new FakeApi(), { scenarioId: 'nope0000', reason: 'spam', details: '' }),
+    ).toMatchObject({ ok: false, failure: 'not-found' });
   });
 });
 

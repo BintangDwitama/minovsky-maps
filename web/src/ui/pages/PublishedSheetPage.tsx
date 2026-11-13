@@ -1,22 +1,32 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { openPublished, rememberEditToken, shortLink } from '../../application/publishing';
+import {
+  openPublished,
+  rememberEditToken,
+  reportScenario,
+  shortLink,
+} from '../../application/publishing';
 import { encodeScenarioLink } from '../../application/shareLink';
 import type { Scenario } from '../../domain/scenario';
 import { BrowserClipboard } from '../../infrastructure/browserClipboard';
 import { DownloadFileWriter } from '../../infrastructure/browserFiles';
 import { FflateCompressor } from '../../infrastructure/fflateCompressor';
 import { HttpScenarioPublisher } from '../../infrastructure/httpScenarioPublisher';
+import { TurnstileHumanCheck } from '../../infrastructure/turnstileHumanCheck';
 import { LocalStoragePublicationStore } from '../../infrastructure/localStoragePublicationStore';
 import { SvgPngExporter } from '../../infrastructure/svgPngExporter';
 import { Button } from '../atoms/Button';
 import { renderBoardSvg } from '../export/renderBoardSvg';
 import { ErrorList } from '../organisms/dialogs';
+import { ReportDialog } from '../organisms/ReportDialog';
+import { PUBLISH_FAILURE } from '../publishMessages';
 import { appAddress, editHash, editPublishedHash, navigate, replaceHashSilently } from '../router';
 import { SheetMessage, SheetView } from './SheetView';
 
 /** Composition root of the published-scenario sheet. */
 const buildServices = () => ({
-  publisher: new HttpScenarioPublisher(),
+  publisher: new HttpScenarioPublisher({
+    humanCheck: new TurnstileHumanCheck(import.meta.env.VITE_TURNSTILE_SITE_KEY),
+  }),
   publications: new LocalStoragePublicationStore(),
   compressor: new FflateCompressor(),
   clipboard: new BrowserClipboard(),
@@ -42,6 +52,7 @@ export function PublishedSheetPage({ id, editToken }: PublishedSheetPageProps) {
   const [services] = useState(buildServices);
   const [state, setState] = useState<State>({ kind: 'loading', slow: false });
   const [canEdit, setCanEdit] = useState(() => services.publications.get(id) !== null);
+  const [reporting, setReporting] = useState(false);
 
   // a private edit link: remember the token in this browser and take it out of the address bar
   const tokenHandled = useRef(false);
@@ -150,6 +161,43 @@ export function PublishedSheetPage({ id, editToken }: PublishedSheetPageProps) {
                 Edit a copy
               </Button>
             </>
+          }
+          trailingActions={
+            <Button
+              variant="frame"
+              icon="flag"
+              onClick={() => setReporting(true)}
+              title="Tell the site owner about a problem with this scenario"
+            >
+              Report
+            </Button>
+          }
+          extraOverlay={
+            reporting ? (
+              <ReportDialog
+                scenarioName={s.meta.name}
+                onClose={() => setReporting(false)}
+                onSend={async (reason, details) => {
+                  const r = await reportScenario(services.publisher, {
+                    scenarioId: id,
+                    reason,
+                    details,
+                  });
+                  if (r.ok) return { ok: true };
+                  const msg = PUBLISH_FAILURE[r.failure];
+                  return {
+                    ok: false,
+                    title:
+                      r.failure === 'not-found'
+                        ? 'This scenario no longer exists.'
+                        : r.failure === 'blocked'
+                          ? 'Please check the form:'
+                          : `${msg.title}.`,
+                    errors: r.failure === 'not-found' ? [] : r.errors,
+                  };
+                }}
+              />
+            ) : null
           }
         />
       );

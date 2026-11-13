@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/BintangDwitama/minovsky-maps/server/internal/publishing"
+	"github.com/BintangDwitama/minovsky-maps/server/internal/reports"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/scenario"
 )
 
@@ -33,12 +34,30 @@ type Pinger interface {
 	Ping(ctx context.Context) error
 }
 
-// Options tune limits (tests use tighter values and a fake clock).
+// BotCheck verifies a human-check token (Cloudflare Turnstile). Verify returns ErrBot for a
+// missing or rejected token, and any other error when the check itself could not run.
+type BotCheck interface {
+	Verify(ctx context.Context, token, remoteIP string) error
+}
+
+// ErrBot is returned by a BotCheck for missing or rejected tokens.
+var ErrBot = errors.New("bot check failed")
+
+// Reporter files reports about published scenarios.
+type Reporter interface {
+	Report(ctx context.Context, in reports.Input) error
+}
+
+// Options tune limits and optional features (tests use tighter values and a fake clock).
 type Options struct {
 	WritesPerMinute int
 	WriteBurst      int
 	Now             func() time.Time
 	Logger          *slog.Logger
+	// Bot verifies Turnstile tokens on writes and reports; nil skips the check.
+	Bot BotCheck
+	// Reports handles POST /api/reports; nil answers 503.
+	Reports Reporter
 }
 
 // New returns the API handler.
@@ -55,13 +74,21 @@ func New(svc Publisher, db Pinger, opt Options) http.Handler {
 	if opt.Logger == nil {
 		opt.Logger = slog.Default()
 	}
-	a := &api{svc: svc, db: db, log: opt.Logger, writes: newLimiter(opt.WritesPerMinute, opt.WriteBurst, opt.Now)}
+	a := &api{
+		svc:     svc,
+		db:      db,
+		log:     opt.Logger,
+		writes:  newLimiter(opt.WritesPerMinute, opt.WriteBurst, opt.Now),
+		bot:     opt.Bot,
+		reports: opt.Reports,
+	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", a.health)
-	mux.HandleFunc("POST /api/scenarios", a.limited(a.publish))
+	mux.HandleFunc("POST /api/scenarios", a.limited("write", a.publish))
 	mux.HandleFunc("GET /api/scenarios/{id}", a.get)
-	mux.HandleFunc("PUT /api/scenarios/{id}", a.limited(a.update))
+	mux.HandleFunc("PUT /api/scenarios/{id}", a.limited("write", a.update))
+	mux.HandleFunc("POST /api/reports", a.limited("report", a.report))
 	// JSON 404 for unknown GET routes; method-only mismatches still get the mux's 405
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		writeErrors(w, http.StatusNotFound, "Not found.")
@@ -70,14 +97,52 @@ func New(svc Publisher, db Pinger, opt Options) http.Handler {
 }
 
 type api struct {
-	svc    Publisher
-	db     Pinger
-	log    *slog.Logger
-	writes *limiter
+	svc     Publisher
+	db      Pinger
+	log     *slog.Logger
+	writes  *limiter
+	bot     BotCheck
+	reports Reporter
 }
 
 type scenarioBody struct {
-	Scenario json.RawMessage `json:"scenario"`
+	Scenario       json.RawMessage `json:"scenario"`
+	TurnstileToken string          `json:"turnstileToken"`
+}
+
+type reportBody struct {
+	ScenarioID     string `json:"scenarioId"`
+	Reason         string `json:"reason"`
+	Details        string `json:"details"`
+	TurnstileToken string `json:"turnstileToken"`
+}
+
+// human runs the bot check; it writes the error response and returns false when the request
+// must stop. Without a configured check every request passes.
+func (a *api) human(w http.ResponseWriter, r *http.Request, token string) bool {
+	if a.bot == nil {
+		return true
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	err := a.bot.Verify(ctx, token, clientIP(r))
+	switch {
+	case err == nil:
+		return true
+	case errors.Is(err, ErrBot):
+		// "code" lets clients tell this 403 apart from a wrong edit token
+		writeJSON(w, http.StatusForbidden, map[string]any{
+			"code":   "bot-check",
+			"errors": []string{"Could not confirm you're a person. Please try again."},
+		})
+	default:
+		a.log.Error("bot check unavailable", "err", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+			"code":   "bot-check",
+			"errors": []string{"The bot check is unavailable right now. Please try again in a minute."},
+		})
+	}
+	return false
 }
 
 func (a *api) health(w http.ResponseWriter, r *http.Request) {
@@ -92,11 +157,11 @@ func (a *api) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *api) publish(w http.ResponseWriter, r *http.Request) {
-	doc, ok := a.readScenario(w, r)
-	if !ok {
+	body, ok := a.readScenario(w, r)
+	if !ok || !a.human(w, r, body.TurnstileToken) {
 		return
 	}
-	created, err := a.svc.Publish(r.Context(), doc)
+	created, err := a.svc.Publish(r.Context(), body.Scenario)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -120,12 +185,12 @@ func (a *api) get(w http.ResponseWriter, r *http.Request) {
 
 func (a *api) update(w http.ResponseWriter, r *http.Request) {
 	token, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	doc, ok := a.readScenario(w, r)
-	if !ok {
+	body, ok := a.readScenario(w, r)
+	if !ok || !a.human(w, r, body.TurnstileToken) {
 		return
 	}
 	id := r.PathValue("id")
-	at, err := a.svc.Update(r.Context(), id, strings.TrimSpace(token), doc)
+	at, err := a.svc.Update(r.Context(), id, strings.TrimSpace(token), body.Scenario)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -133,24 +198,56 @@ func (a *api) update(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"id": id, "updatedAt": at.UTC()})
 }
 
-func (a *api) readScenario(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
-	r.Body = http.MaxBytesReader(w, r.Body, MaxBodyBytes)
+func (a *api) report(w http.ResponseWriter, r *http.Request) {
+	if a.reports == nil {
+		writeErrors(w, http.StatusServiceUnavailable, "Reporting is not available on this server.")
+		return
+	}
+	var body reportBody
+	if !decodeJSON(w, r, &body, "Request body must be JSON: {\"scenarioId\": …, \"reason\": …}.") {
+		return
+	}
+	if !a.human(w, r, body.TurnstileToken) {
+		return
+	}
+	err := a.reports.Report(r.Context(), reports.Input{ScenarioID: body.ScenarioID, Reason: body.Reason, Details: body.Details})
+	var inv *reports.Invalid
+	if errors.As(err, &inv) {
+		writeErrors(w, http.StatusBadRequest, inv.Message)
+		return
+	}
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]bool{"received": true})
+}
+
+func (a *api) readScenario(w http.ResponseWriter, r *http.Request) (scenarioBody, bool) {
 	var body scenarioBody
-	dec := json.NewDecoder(r.Body)
-	if err := dec.Decode(&body); err != nil {
-		var tooBig *http.MaxBytesError
-		if errors.As(err, &tooBig) {
-			writeErrors(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("Scenario is larger than %d KB.", MaxBodyBytes>>10))
-			return nil, false
-		}
-		writeErrors(w, http.StatusBadRequest, "Request body must be JSON: {\"scenario\": {...}}.")
-		return nil, false
+	if !decodeJSON(w, r, &body, "Request body must be JSON: {\"scenario\": {...}}.") {
+		return body, false
 	}
 	if len(body.Scenario) == 0 || string(body.Scenario) == "null" {
 		writeErrors(w, http.StatusBadRequest, "Missing \"scenario\".")
-		return nil, false
+		return body, false
 	}
-	return body.Scenario, true
+	return body, true
+}
+
+// decodeJSON reads a size-limited JSON body; it writes 413/400 and returns false on failure.
+func decodeJSON(w http.ResponseWriter, r *http.Request, dst any, badRequest string) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, MaxBodyBytes)
+	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
+		var tooBig *http.MaxBytesError
+		if errors.As(err, &tooBig) {
+			writeErrors(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("Request is larger than %d KB.", MaxBodyBytes>>10))
+			return false
+		}
+		writeErrors(w, http.StatusBadRequest, badRequest)
+		return false
+	}
+	return true
 }
 
 // fail maps service errors to HTTP responses.
@@ -172,10 +269,10 @@ func (a *api) fail(w http.ResponseWriter, err error) {
 	}
 }
 
-// limited applies the per-IP write rate limit.
-func (a *api) limited(next http.HandlerFunc) http.HandlerFunc {
+// limited applies a per-IP rate limit; each bucket ("write", "report") is counted separately.
+func (a *api) limited(bucket string, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ok, wait := a.writes.allow(clientIP(r))
+		ok, wait := a.writes.allow(bucket + ":" + clientIP(r))
 		if !ok {
 			w.Header().Set("Retry-After", fmt.Sprint(int(math.Ceil(wait.Seconds()))))
 			writeErrors(w, http.StatusTooManyRequests, "Too many changes in a short time. Try again in a minute.")

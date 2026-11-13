@@ -49,6 +49,7 @@ export type ApiFailure =
   | 'not-found' // 404: unknown or taken-down scenario
   | 'forbidden' // 401/403: missing or wrong edit token
   | 'rate-limited' // 429
+  | 'bot' // the human check failed or couldn't run
   | 'unavailable'; // network error, timeout, 5xx
 
 export type ApiResult<T> =
@@ -75,8 +76,26 @@ export interface ScenarioPublisher {
     id: string,
     opts?: CallOptions,
   ): Promise<ApiResult<{ scenario: unknown; updatedAt: string }>>;
+  /** Report a published scenario to the site owner. */
+  report(input: ReportInput, opts?: CallOptions): Promise<ApiResult<{ received: boolean }>>;
   /** Fire-and-forget request that starts a sleeping server early. Never throws. */
   wake(): void;
+}
+
+export type ReportReason = 'official-copy' | 'offensive' | 'spam' | 'broken' | 'other';
+
+export interface ReportInput {
+  readonly scenarioId: string;
+  readonly reason: ReportReason;
+  readonly details: string;
+}
+
+/**
+ * Proves a person is acting (Cloudflare Turnstile). Resolves a fresh single-use token, or null
+ * when no check is configured; rejects when the check can't run (blocked script, failure).
+ */
+export interface HumanCheck {
+  token(): Promise<string | null>;
 }
 
 /** A scenario this browser can edit. */
@@ -91,4 +110,6 @@ export interface PublicationStore {
   get(id: string): Publication | null;
   save(p: Publication): void;
   list(): Publication[];
+  /** Forget the edit token for a scenario (the scenario itself stays published). */
+  remove(id: string): void;
 }

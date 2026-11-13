@@ -61,6 +61,29 @@ func TestRepositoryRoundTrip(t *testing.T) {
 	}
 }
 
+func TestReports(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	id := "R" + randomSuffix(t)
+	if _, err := s.Create(ctx, id, []byte("h"), json.RawMessage(`{"schemaVersion":1,"meta":{"name":"Mesa"}}`), 1); err != nil {
+		t.Fatal(err)
+	}
+	name, err := s.ScenarioName(ctx, id)
+	if err != nil || name != "Mesa" {
+		t.Fatalf("name %q err %v", name, err)
+	}
+	rid, at, err := s.AddReport(ctx, id, "spam", "details")
+	if err != nil || rid == 0 || at.IsZero() {
+		t.Fatalf("add report: %d %v %v", rid, at, err)
+	}
+	if err := s.MarkEmailed(ctx, rid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ScenarioName(ctx, "Zzzzzzz0"); !errors.Is(err, publishing.ErrNotFound) {
+		t.Fatalf("unknown: %v", err)
+	}
+}
+
 func TestMigrateIsIdempotent(t *testing.T) {
 	s := open(t)
 	_ = s // Open already migrated once; opening again must not fail.

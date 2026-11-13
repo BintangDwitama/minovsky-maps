@@ -10,14 +10,15 @@ import { NumberInput, TextInput } from '../atoms/inputs';
 import { Hint } from '../atoms/Text';
 import { FieldRow } from '../molecules/controls';
 
-interface DialogShellProps {
+export interface DialogShellProps {
   title: string;
   children: ReactNode;
   actions: ReactNode;
   onClose(): void;
 }
 
-function DialogShell({ title, children, actions, onClose }: DialogShellProps) {
+/** Modal frame shared by all dialogs: navy title band, body, actions; Escape and backdrop close it. */
+export function DialogShell({ title, children, actions, onClose }: DialogShellProps) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {

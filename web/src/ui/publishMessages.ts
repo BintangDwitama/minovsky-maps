@@ -29,6 +29,11 @@ export const PUBLISH_FAILURE: Record<
     intro: 'Open the private edit link you saved when publishing, then try again.',
     showErrors: false,
   },
+  bot: {
+    title: 'Couldn’t confirm you’re a person',
+    intro: 'The bot check didn’t succeed:',
+    showErrors: true,
+  },
   'rate-limited': {
     title: 'Too many changes at once',
     intro: 'Wait a minute, then try again.',
