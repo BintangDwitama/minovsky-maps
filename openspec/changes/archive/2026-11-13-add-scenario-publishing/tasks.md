@@ -45,6 +45,6 @@
 - [x] 8.2 Local end-to-end (Go API with the in-memory store + Vite proxy, 24/24 checks): publish → short link in a fresh browser → update → same link shows the change; wrong-token update refused; private edit link on a fresh browser enables Update
 - [x] 8.3 Cold-start check: with the API stopped then started late, the sheet shows the waking state and then the scenario
 - [x] 8.4 Re-run the Phase 1 and share-link walkthroughs (no regressions)
-- [ ] 8.5 CI green on GitHub after pushing (needs a push)
+- [x] 8.5 CI green on GitHub after pushing (needs a push)
 - [x] 8.6 Postgres integration tests against the Neon `dev` branch (`TEST_DATABASE_URL`) and a local publish/read through the real database (server loads `.env.local`)
-- [ ] 8.7 Production smoke test on Vercel + Pages (needs the owner's Vercel project and `API_ORIGIN` on Pages); `server/vercel.json` added for the Go preset and `sin1` region
+- [x] 8.7 Production smoke test on Vercel + Pages (needs the owner's Vercel project and `API_ORIGIN` on Pages); `server/vercel.json` added for the Go preset and `sin1` region
