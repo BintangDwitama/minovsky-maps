@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
 import { type Axial, pixelToAxial } from '../../domain/hex';
+import { rectangleSize } from '../../domain/scenario';
 import { buildIndex, isOnBoard } from '../../domain/scenarioIndex';
 import { IconButton } from '../atoms/Button';
 import { useEditor, useServices, useUi } from '../hooks/editorContext';
@@ -152,13 +153,14 @@ export function HexBoard({ requestLabel }: { requestLabel: ToolContext['requestL
 
   // transform keeps the zoom origin at the viewBox origin; pan is in viewBox units
   const transform = `translate(${pan.x} ${pan.y}) scale(${zoom})`;
+  const deckSize = useMemo(() => rectangleSize(scenario), [scenario]);
   const panning = stroke.current?.kind === 'pan' || spaceHeld;
 
   return (
     <>
       <svg
         ref={svgRef}
-        className="board"
+        className="block size-full touch-none select-none"
         viewBox={`${bounds.minX} ${bounds.minY} ${bounds.width} ${bounds.height}`}
         preserveAspectRatio="xMidYMid meet"
         style={{ cursor: panning ? 'grab' : tool.cursor }}
@@ -178,10 +180,22 @@ export function HexBoard({ requestLabel }: { requestLabel: ToolContext['requestL
           </g>
         </g>
       </svg>
-      <div className="board__controls">
-        <IconButton icon="zoomIn" label="Zoom in" onClick={() => zoomAt(1.25)} />
-        <IconButton icon="zoomOut" label="Zoom out" onClick={() => zoomAt(1 / 1.25)} />
-        <IconButton icon="fit" label="Fit board" onClick={fit} />
+      {/* deck stencil: states the board size; the settings panel says the same for screen readers */}
+      <div
+        className="pointer-events-none absolute bottom-3 left-4 text-[28px] leading-none font-extrabold tracking-[0.04em] text-deck-stencil font-stretch-condensed select-none"
+        aria-hidden
+      >
+        {deckSize ? `Deck ${deckSize.width} × ${deckSize.height}` : `Deck: ${scenario.board.hexes.length} hexes`}
+      </div>
+      <div className="absolute right-2.5 bottom-2.5 flex gap-1">
+        <IconButton className="bg-panel" icon="zoomIn" label="Zoom in" onClick={() => zoomAt(1.25)} />
+        <IconButton
+          className="bg-panel"
+          icon="zoomOut"
+          label="Zoom out"
+          onClick={() => zoomAt(1 / 1.25)}
+        />
+        <IconButton className="bg-panel" icon="fit" label="Fit board" onClick={fit} />
       </div>
     </>
   );

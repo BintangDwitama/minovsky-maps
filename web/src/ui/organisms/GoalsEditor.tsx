@@ -1,6 +1,8 @@
 import { addGoalCmd, moveGoalCmd, removeGoalCmd, updateGoalCmd } from '../../application/commands';
 import { Button } from '../atoms/Button';
+import { Hint } from '../atoms/Text';
 import { GoalRow } from '../molecules/GoalRow';
+import { PanelSection } from '../molecules/PanelSection';
 import { useEditor, useServices } from '../hooks/editorContext';
 
 export function GoalsEditor() {
@@ -9,19 +11,29 @@ export function GoalsEditor() {
   const { goals } = scenario;
 
   return (
-    <section className="panel-section">
-      <h2>
-        Goals
-        <Button
-          small
-          icon="plus"
-          onClick={() => session.execute(addGoalCmd({ id: ids.next(), text: 'New goal', vp: 1, scoring: 'each-phase' }))}
-        >
-          Add
-        </Button>
-      </h2>
+    <PanelSection
+      title={
+        <>
+          Goals
+          <Button
+            small
+            icon="plus"
+            className="font-normal font-stretch-normal"
+            onClick={() =>
+              session.execute(
+                addGoalCmd({ id: ids.next(), text: 'New goal', vp: 1, scoring: 'each-phase' }),
+              )
+            }
+          >
+            Add
+          </Button>
+        </>
+      }
+    >
       {goals.length === 0 ? (
-        <p className="field__hint">No goals yet. Victory points for defeating units and Garrisons are scored as usual.</p>
+        <Hint as="p">
+          No goals yet. Victory points for defeating units and Garrisons are scored as usual.
+        </Hint>
       ) : null}
       {goals.map((g, i) => (
         <GoalRow
@@ -36,6 +48,6 @@ export function GoalsEditor() {
           onRemove={() => session.execute(removeGoalCmd(g.id))}
         />
       ))}
-    </section>
+    </PanelSection>
   );
 }

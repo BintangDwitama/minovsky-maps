@@ -3,6 +3,7 @@ import { rectangleSize } from '../../domain/scenario';
 import { Button } from '../atoms/Button';
 import { NumberInput, TextArea, TextInput } from '../atoms/inputs';
 import { FieldRow, Segmented } from '../molecules/controls';
+import { PanelSection } from '../molecules/PanelSection';
 import { useEditor, useServices, useTransactionalField } from '../hooks/editorContext';
 
 export function ScenarioSettingsPanel({ onResize }: { onResize(): void }) {
@@ -16,8 +17,7 @@ export function ScenarioSettingsPanel({ onResize }: { onResize(): void }) {
 
   return (
     <>
-      <section className="panel-section">
-        <h2>Scenario</h2>
+      <PanelSection title="Scenario">
         <FieldRow label="Name" htmlFor="meta-name" error={nameError}>
           <TextInput
             id="meta-name"
@@ -48,18 +48,20 @@ export function ScenarioSettingsPanel({ onResize }: { onResize(): void }) {
           />
         </FieldRow>
         <FieldRow label="Board">
-          <div className="row">
-            <span>{size ? `${size.width} × ${size.height} hexes` : `${scenario.board.hexes.length} hexes`}</span>
-            <span style={{ flex: 1 }} />
+          <div className="flex items-center gap-1.5">
+            <span className="flex-1">
+              {size
+                ? `${size.width} × ${size.height} hexes`
+                : `${scenario.board.hexes.length} hexes`}
+            </span>
             <Button small icon="resize" onClick={onResize}>
               Resize
             </Button>
           </div>
         </FieldRow>
-      </section>
+      </PanelSection>
 
-      <section className="panel-section">
-        <h2>Rules</h2>
+      <PanelSection title="Rules">
         <FieldRow label="Deployment">
           <Segmented
             ariaLabel="Deployment"
@@ -71,7 +73,7 @@ export function ScenarioSettingsPanel({ onResize }: { onResize(): void }) {
             onChange={(deployment) => session.execute(updateRulesCmd({ deployment }))}
           />
         </FieldRow>
-        <div className="grid-2">
+        <div className="grid grid-cols-2 gap-2">
           <FieldRow label="Squad size" htmlFor="rules-squad">
             <NumberInput
               id="rules-squad"
@@ -79,7 +81,9 @@ export function ScenarioSettingsPanel({ onResize }: { onResize(): void }) {
               max={20}
               value={rules.squadSize}
               {...rulesTx}
-              onValueChange={(v) => session.execute(updateRulesCmd({ squadSize: Math.max(1, Math.min(20, v ?? 1)) }))}
+              onValueChange={(v) =>
+                session.execute(updateRulesCmd({ squadSize: Math.max(1, Math.min(20, v ?? 1)) }))
+              }
             />
           </FieldRow>
           <FieldRow label="Mass-produced limit" htmlFor="rules-mp" hint="Blank = not specified">
@@ -92,13 +96,22 @@ export function ScenarioSettingsPanel({ onResize }: { onResize(): void }) {
               {...rulesTx}
               onValueChange={(v) =>
                 session.execute(
-                  updateRulesCmd({ massProducedLimit: v === null ? undefined : Math.max(0, Math.min(20, v)) }),
+                  updateRulesCmd({
+                    massProducedLimit: v === null ? undefined : Math.max(0, Math.min(20, v)),
+                  }),
                 )
               }
             />
           </FieldRow>
         </div>
-        <FieldRow label="Terrain setup" hint={rules.terrainSetup === 'free' ? 'Players agree where terrain goes during setup.' : 'Terrain is placed exactly as shown.'}>
+        <FieldRow
+          label="Terrain setup"
+          hint={
+            rules.terrainSetup === 'free'
+              ? 'Players agree where terrain goes during setup.'
+              : 'Terrain is placed exactly as shown.'
+          }
+        >
           <Segmented
             ariaLabel="Terrain setup"
             value={rules.terrainSetup}
@@ -109,7 +122,7 @@ export function ScenarioSettingsPanel({ onResize }: { onResize(): void }) {
             onChange={(terrainSetup) => session.execute(updateRulesCmd({ terrainSetup }))}
           />
         </FieldRow>
-      </section>
+      </PanelSection>
     </>
   );
 }

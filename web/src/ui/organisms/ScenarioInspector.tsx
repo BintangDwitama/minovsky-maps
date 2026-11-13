@@ -8,7 +8,9 @@ import { kindDef } from '../../domain/components/registry';
 import { axialToOffset, DIRECTION_NAMES, toDirection } from '../../domain/hex';
 import { Button } from '../atoms/Button';
 import { Select, TextArea, TextInput } from '../atoms/inputs';
+import { Hint } from '../atoms/Text';
 import { FieldRow, OwnerToggle } from '../molecules/controls';
+import { PanelSection } from '../molecules/PanelSection';
 import { useEditor, useServices, useTransactionalField, useUi } from '../hooks/editorContext';
 
 /** Properties of the selected component; every field is editable here. */
@@ -21,10 +23,9 @@ export function ScenarioInspector() {
 
   if (!c) {
     return (
-      <section className="panel-section panel-section--empty">
-        <h2>Selection</h2>
+      <PanelSection title="Selection" muted>
         Select a component on the board to edit it.
-      </section>
+      </PanelSection>
     );
   }
 
@@ -40,22 +41,33 @@ export function ScenarioInspector() {
   };
 
   return (
-    <section className="panel-section">
-      <h2>
-        {def.label}
-        <span className="field__hint">
-          {c.kind === 'carrier' ? 'middle ' : ''}hex {col}, {row}
-        </span>
-      </h2>
-
+    <PanelSection
+      title={
+        <>
+          {def.label}
+          <Hint className="font-normal font-stretch-normal">
+            {c.kind === 'carrier' ? 'middle ' : ''}hex {col}, {row}
+          </Hint>
+        </>
+      }
+    >
       <FieldRow label="Owner">
-        <OwnerToggle value={c.owner} allowed={def.allowedOwners} onChange={(owner) => update({ owner })} />
+        <OwnerToggle
+          value={c.owner}
+          allowed={def.allowedOwners}
+          onChange={(owner) => update({ owner })}
+        />
       </FieldRow>
 
       {c.kind === 'carrier' ? (
         <FieldRow label={`Facing: ${DIRECTION_NAMES[toDirection(c.facing)]}`}>
-          <div className="row">
-            <Button small icon="rotateCcw" onClick={() => rotate(-1)} title="Rotate counter-clockwise (Shift+R)">
+          <div className="flex items-center gap-1.5">
+            <Button
+              small
+              icon="rotateCcw"
+              onClick={() => rotate(-1)}
+              title="Rotate counter-clockwise (Shift+R)"
+            >
               Rotate left
             </Button>
             <Button small icon="rotateCw" onClick={() => rotate(1)} title="Rotate clockwise (R)">
@@ -81,7 +93,10 @@ export function ScenarioInspector() {
 
       {c.kind === 'objective' ? (
         <>
-          <FieldRow label="Objective type" hint="Controllable: contested from adjacent hexes. Carryable: picked up by a unit.">
+          <FieldRow
+            label="Objective type"
+            hint="Controllable: contested from adjacent hexes. Carryable: picked up by a unit."
+          >
             <Select
               value={c.objectiveType}
               options={[
@@ -105,7 +120,11 @@ export function ScenarioInspector() {
 
       {c.kind === 'token' || c.kind === 'structure' ? (
         <>
-          <FieldRow label="Label" htmlFor="insp-label" error={c.label.trim() ? null : 'A label is required.'}>
+          <FieldRow
+            label="Label"
+            htmlFor="insp-label"
+            error={c.label.trim() ? null : 'A label is required.'}
+          >
             <TextInput
               id="insp-label"
               maxLength={60}
@@ -138,6 +157,6 @@ export function ScenarioInspector() {
       >
         Remove {def.label.toLowerCase()}
       </Button>
-    </section>
+    </PanelSection>
   );
 }

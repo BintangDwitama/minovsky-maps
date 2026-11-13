@@ -1,0 +1,137 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/saira/wdth.css';
+@import './tokens.css';
+
+/*
+ * Tailwind theme mapped onto the design tokens in tokens.css. `inline` makes utilities emit
+ * `var(--panel)` etc. directly, so the prefers-color-scheme override in tokens.css re-themes
+ * every utility without `dark:` variants. Board/terrain colours are not mapped: the SVG board
+ * and PNG export read them from theme.ts.
+ */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-2: var(--panel-2);
+  --color-border: var(--border);
+  --color-plate-hi: var(--plate-hi);
+  --color-plate-hover: var(--plate-hover);
+  --color-field: var(--field);
+  --color-vent-soft: color-mix(in srgb, var(--vent) 22%, var(--panel));
+  --color-frame: var(--frame);
+  --color-frame-2: var(--frame-2);
+  --color-frame-ink: var(--frame-ink);
+  --color-frame-muted: var(--frame-muted);
+  --color-text: var(--text);
+  --color-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-vent: var(--vent);
+  --color-danger: var(--danger);
+  --color-warning-bg: var(--warning-bg);
+  --color-warning-text: var(--warning-text);
+  --color-board: var(--board-bg);
+  --color-deck-stencil: var(--deck-stencil);
+
+  --radius-ui: var(--radius);
+}
+
+@theme {
+  /* Saira (SIL OFL), self-hosted. Width axis: 100% body, condensed for headings. */
+  --font-sans: 'Saira Variable', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, monospace;
+
+  /* UI type scale (px; normal leading). */
+  --text-micro: 10px;
+  --text-micro--line-height: normal;
+  --text-tiny: 11px;
+  --text-tiny--line-height: normal;
+  --text-xs: 12px;
+  --text-xs--line-height: normal;
+  --text-ui: 13px;
+  --text-ui--line-height: normal;
+  --text-sm: 14px;
+  --text-sm--line-height: normal;
+  --text-head: 15px;
+  --text-head--line-height: normal;
+  --text-title: 18px;
+  --text-title--line-height: normal;
+  --text-lg: 18px;
+  --text-lg--line-height: normal;
+  --text-stat: 26px;
+  --text-stat--line-height: 1;
+}
+
+/* Armour plate with the top-left and bottom-right corners cut off. */
+@utility chamfer {
+  clip-path: polygon(
+    12px 0,
+    100% 0,
+    100% calc(100% - 12px),
+    calc(100% - 12px) 100%,
+    0 100%,
+    0 12px
+  );
+}
+
+@utility chamfer-sm {
+  clip-path: polygon(7px 0, 100% 0, 100% calc(100% - 7px), calc(100% - 7px) 100%, 0 100%, 0 7px);
+}
+
+/* Engraved panel line: dark seam with a highlight below it. */
+@utility panel-line {
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 1px 0 var(--plate-hi);
+}
+
+/* Diagonal yellow/black hazard stripe; used only to mark warnings. */
+@utility hazard {
+  background-image: repeating-linear-gradient(-45deg, var(--vent) 0 5px, #161d2b 5px 10px);
+}
+
+/* Hangar deck behind the board: large deck plates with faint seams. */
+@utility deck {
+  background-color: var(--board-bg);
+  background-image:
+    linear-gradient(var(--deck-seam) 1px, transparent 1px),
+    linear-gradient(90deg, var(--deck-seam) 1px, transparent 1px);
+  background-size: 96px 96px;
+  background-position: -1px -1px;
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  html {
+    line-height: normal;
+  }
+
+  body {
+    @apply bg-bg font-sans text-sm text-text;
+  }
+
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+
+  * {
+    scrollbar-color: var(--border) transparent;
+  }
+}

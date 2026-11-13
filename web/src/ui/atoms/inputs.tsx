@@ -1,13 +1,27 @@
 import type { InputHTMLAttributes, SelectHTMLAttributes, TextareaHTMLAttributes } from 'react';
+import { cn } from '../cn';
 
-const cls = (error?: boolean, extra?: string) => ['input', error && 'input--error', extra].filter(Boolean).join(' ');
+/** Inputs are square wells set into the plate (not chamfered: they read as screens). */
+const FIELD =
+  'w-full min-w-0 rounded-ui border border-border bg-field px-2 py-1.25 shadow-[inset_0_1px_2px_var(--plate-edge)] focus:border-accent';
+const INVALID = 'border-danger';
+
+const field = (invalid: boolean | undefined, extra?: string) =>
+  cn(FIELD, invalid && INVALID, extra);
 
 export interface TextInputProps extends InputHTMLAttributes<HTMLInputElement> {
   invalid?: boolean;
 }
 
 export function TextInput({ invalid, className, ...rest }: TextInputProps) {
-  return <input type="text" className={cls(invalid, className)} aria-invalid={invalid || undefined} {...rest} />;
+  return (
+    <input
+      type="text"
+      className={field(invalid, className)}
+      aria-invalid={invalid || undefined}
+      {...rest}
+    />
+  );
 }
 
 export interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElement> {
@@ -15,10 +29,19 @@ export interface TextAreaProps extends TextareaHTMLAttributes<HTMLTextAreaElemen
 }
 
 export function TextArea({ invalid, className, ...rest }: TextAreaProps) {
-  return <textarea className={cls(invalid, className)} aria-invalid={invalid || undefined} {...rest} />;
+  return (
+    <textarea
+      className={field(invalid, cn('min-h-15 resize-y wrap-break-word', className))}
+      aria-invalid={invalid || undefined}
+      {...rest}
+    />
+  );
 }
 
-export interface NumberInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange'> {
+export interface NumberInputProps extends Omit<
+  InputHTMLAttributes<HTMLInputElement>,
+  'value' | 'onChange'
+> {
   value: number | null;
   onValueChange(value: number | null): void;
   invalid?: boolean;
@@ -26,12 +49,19 @@ export interface NumberInputProps extends Omit<InputHTMLAttributes<HTMLInputElem
   allowEmpty?: boolean;
 }
 
-export function NumberInput({ value, onValueChange, invalid, allowEmpty, className, ...rest }: NumberInputProps) {
+export function NumberInput({
+  value,
+  onValueChange,
+  invalid,
+  allowEmpty,
+  className,
+  ...rest
+}: NumberInputProps) {
   return (
     <input
       type="number"
       inputMode="numeric"
-      className={cls(invalid, className)}
+      className={field(invalid, className)}
       aria-invalid={invalid || undefined}
       value={value ?? ''}
       onChange={(e) => {
@@ -53,15 +83,29 @@ export interface SelectOption<T extends string> {
   label: string;
 }
 
-export interface SelectProps<T extends string> extends Omit<SelectHTMLAttributes<HTMLSelectElement>, 'value' | 'onChange'> {
+export interface SelectProps<T extends string> extends Omit<
+  SelectHTMLAttributes<HTMLSelectElement>,
+  'value' | 'onChange'
+> {
   value: T;
   options: readonly SelectOption<T>[];
   onValueChange(value: T): void;
 }
 
-export function Select<T extends string>({ value, options, onValueChange, className, ...rest }: SelectProps<T>) {
+export function Select<T extends string>({
+  value,
+  options,
+  onValueChange,
+  className,
+  ...rest
+}: SelectProps<T>) {
   return (
-    <select className={cls(false, className)} value={value} onChange={(e) => onValueChange(e.target.value as T)} {...rest}>
+    <select
+      className={field(false, className)}
+      value={value}
+      onChange={(e) => onValueChange(e.target.value as T)}
+      {...rest}
+    >
       {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}

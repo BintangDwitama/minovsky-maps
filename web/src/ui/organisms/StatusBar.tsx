@@ -31,16 +31,30 @@ export function StatusBar() {
     const { col, row } = axialToOffset(hover);
     const level = elevationAt(idx, hover);
     const tags = tagsAt(idx, hover).map((t) => TERRAIN_LABELS[t]);
-    hoverText = [`${col}, ${row}`, level ? `level ${level}` : null, tags.length ? tags.join(' + ') : null]
+    hoverText = [
+      `${col}, ${row}`,
+      level ? `level ${level}` : null,
+      tags.length ? tags.join(' + ') : null,
+    ]
       .filter(Boolean)
       .join(' · ');
   }
 
   return (
-    <footer className="statusbar" aria-live="polite">
-      <span style={{ minWidth: 160 }}>{hoverText || '—'}</span>
-      {message ? <span className="statusbar__message">{message}</span> : <span>{TOOL_HINT[tool]}</span>}
-      <span style={{ flex: 1 }} />
+    <footer
+      className="flex min-h-6.5 items-center gap-4 bg-frame px-2.5 py-1 text-xs text-frame-muted"
+      aria-live="polite"
+      data-testid="statusbar"
+    >
+      <span className="min-w-40 font-semibold text-frame-ink tabular-nums">{hoverText || '—'}</span>
+      {message ? (
+        <span className="font-semibold text-vent" data-testid="status-message">
+          {message}
+        </span>
+      ) : (
+        <span>{TOOL_HINT[tool]}</span>
+      )}
+      <span className="flex-1" />
       <span>{Math.round(zoom * 100)}%</span>
     </footer>
   );

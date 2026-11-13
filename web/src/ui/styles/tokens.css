@@ -5,8 +5,7 @@
 :root {
   color-scheme: light dark;
 
-  --font-ui: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-mono: ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, monospace;
+  /* Font stacks live in app.css @theme (--font-sans / --font-mono) so Tailwind's base uses them. */
 
   --side-a: #0072b2;
   --side-a-ink: #ffffff;
@@ -36,33 +35,62 @@
   --highlight-select: #ffd400;
   --highlight-warning: #ff3b3b;
 
-  --bg: #f4f4f6;
-  --panel: #ffffff;
-  --panel-2: #f0f1f4;
-  --border: #d9dbe1;
-  --text: #1b1d21;
-  --text-muted: #5f6470;
-  --accent: #0072b2;
-  --danger: #c0392b;
-  --warning-bg: #fff4e0;
-  --warning-text: #8a5300;
-  --board-bg: #23262d;
+  /*
+   * Chrome: "armour plating" theme. Plates with engraved panel lines, a navy frame, vent yellow
+   * for the active tool. Accents are navy, never the side colours, so blue/vermilion always
+   * mean Side A/B.
+   */
+  --bg: #dfe4eb;
+  --panel: #eef1f5; /* armour plate */
+  --panel-2: #dfe4eb; /* recessed plate */
+  --border: #bcc5d1; /* panel line, dark half */
+  --plate-hi: #ffffff; /* panel line, light half */
+  --plate-edge: rgba(22, 29, 43, 0.16); /* lower edge of raised plates */
+  --plate-hover: #d2d9e3;
+  --field: #ffffff; /* input wells */
+  --frame: #1b2846;
+  --frame-2: #2a3a60;
+  --frame-ink: #ffffff;
+  --frame-muted: #b9c4d8;
+  --text: #161d2b;
+  --text-muted: #4f5a6b;
+  --accent: #24407a;
+  --accent-ink: #ffffff;
+  --vent: #f2b705;
+  --danger: #b3261e;
+  --warning-bg: #fff1cc;
+  --warning-text: #5c3b00;
+  --board-bg: #2b3139; /* hangar deck */
+  --deck-seam: rgba(255, 255, 255, 0.06);
+  --deck-stencil: rgba(255, 255, 255, 0.22);
 
-  --radius: 6px;
+  --radius: 2px;
   --gap: 8px;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #15171b;
-    --panel: #1d2026;
-    --panel-2: #252931;
-    --border: #343944;
-    --text: #e8eaee;
-    --text-muted: #9aa1ad;
-    --accent: #56b4e9;
-    --warning-bg: #3a2c12;
-    --warning-text: #ffcf7a;
-    --board-bg: #0f1114;
+    --bg: #1b2028;
+    --panel: #232933;
+    --panel-2: #1b2028;
+    --border: #38414e;
+    --plate-hi: #2d3440;
+    --plate-edge: rgba(0, 0, 0, 0.35);
+    --plate-hover: #2c3440;
+    --field: #161a21;
+    --frame: #0e1420;
+    --frame-2: #1d2738;
+    --frame-ink: #e7ecf3;
+    --frame-muted: #9aa6b8;
+    --text: #e7ecf3;
+    --text-muted: #a3adbb;
+    --accent: #8fb0ee;
+    --accent-ink: #0e1420;
+    --danger: #ff8a80;
+    --warning-bg: #3a2c0f;
+    --warning-text: #ffd479;
+    --board-bg: #14181e;
+    --deck-seam: rgba(255, 255, 255, 0.04);
+    --deck-stencil: rgba(255, 255, 255, 0.16);
   }
 }

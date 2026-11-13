@@ -10,11 +10,23 @@ export interface ComponentPaletteItemProps {
   onSelect(): void;
 }
 
-export function ComponentPaletteItem({ kind, label, owner, active, onSelect }: ComponentPaletteItemProps) {
+export function ComponentPaletteItem({
+  kind,
+  label,
+  owner,
+  active,
+  onSelect,
+}: ComponentPaletteItemProps) {
   return (
-    <Button className="palette-item" small active={active} onClick={onSelect}>
-      <svg width="24" height="24" viewBox="-16 -16 32 32" aria-hidden>
-        <ComponentGlyph kind={kind} center={{ x: 0, y: 0 }} size={kind === 'carrier' ? 22 : 18} owner={owner} variant="controllable" />
+    <Button className="flex w-full justify-start gap-2" small active={active} onClick={onSelect}>
+      <svg className="flex-none" width="24" height="24" viewBox="-16 -16 32 32" aria-hidden>
+        <ComponentGlyph
+          kind={kind}
+          center={{ x: 0, y: 0 }}
+          size={kind === 'carrier' ? 22 : 18}
+          owner={owner}
+          variant="controllable"
+        />
       </svg>
       {label}
     </Button>

@@ -1,7 +1,13 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { DEFAULT_BOARD_SIZE, isValidBoardSize, MAX_BOARD_SIZE, MIN_BOARD_SIZE } from '../../domain/scenario';
+import {
+  DEFAULT_BOARD_SIZE,
+  isValidBoardSize,
+  MAX_BOARD_SIZE,
+  MIN_BOARD_SIZE,
+} from '../../domain/scenario';
 import { Button } from '../atoms/Button';
 import { NumberInput } from '../atoms/inputs';
+import { Hint } from '../atoms/Text';
 import { FieldRow } from '../molecules/controls';
 
 interface DialogShellProps {
@@ -16,7 +22,9 @@ function DialogShell({ title, children, actions, onClose }: DialogShellProps) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
-    ref.current?.querySelector<HTMLElement>('input, button.btn--primary, button')?.focus();
+    ref.current
+      ?.querySelector<HTMLElement>('input, button[data-variant="primary"], button')
+      ?.focus();
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
     window.addEventListener('keydown', onKey);
     return () => {
@@ -25,11 +33,30 @@ function DialogShell({ title, children, actions, onClose }: DialogShellProps) {
     };
   }, [onClose]);
   return (
-    <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} ref={ref}>
-        <h2 id={titleId}>{title}</h2>
-        <div className="dialog__body">{children}</div>
-        <div className="dialog__actions">{actions}</div>
+    <div
+      className="fixed inset-0 z-10 grid place-items-center bg-black/45"
+      onMouseDown={(e) => e.target === e.currentTarget && onClose()}
+    >
+      {/* drop-shadow sits on a wrapper: the chamfer clip would cut a box-shadow off */}
+      <div className="drop-shadow-[0_10px_30px_rgba(0,0,0,0.4)]">
+        <div
+          className="max-h-[calc(100vh-32px)] w-[min(440px,calc(100vw-32px))] overflow-auto bg-panel chamfer"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          ref={ref}
+        >
+          <h2
+            id={titleId}
+            className="border-b-2 border-vent bg-frame px-4.5 py-2.5 text-title font-bold text-frame-ink font-stretch-condensed"
+          >
+            {title}
+          </h2>
+          <div className="p-4.5">
+            <div className="mb-4">{children}</div>
+            <div className="flex justify-end gap-2">{actions}</div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -108,15 +135,31 @@ export function NewScenarioDialog({ mode, initial, onSubmit, onCancel }: BoardSi
           submit();
         }}
       >
-        <p className="field__hint" style={{ marginTop: 0 }}>
+        <Hint as="p" className="mt-0">
           Flat-top hexes, first column up. The standard Gundam Assemble board is 15 × 15.
-        </p>
-        <div className="grid-2">
+        </Hint>
+        <div className="grid grid-cols-2 gap-2">
           <FieldRow label="Columns (width)" htmlFor="size-w" error={wErr}>
-            <NumberInput id="size-w" min={MIN_BOARD_SIZE} max={MAX_BOARD_SIZE} allowEmpty value={width} invalid={!!wErr} onValueChange={setWidth} />
+            <NumberInput
+              id="size-w"
+              min={MIN_BOARD_SIZE}
+              max={MAX_BOARD_SIZE}
+              allowEmpty
+              value={width}
+              invalid={!!wErr}
+              onValueChange={setWidth}
+            />
           </FieldRow>
           <FieldRow label="Rows (height)" htmlFor="size-h" error={hErr}>
-            <NumberInput id="size-h" min={MIN_BOARD_SIZE} max={MAX_BOARD_SIZE} allowEmpty value={height} invalid={!!hErr} onValueChange={setHeight} />
+            <NumberInput
+              id="size-h"
+              min={MIN_BOARD_SIZE}
+              max={MAX_BOARD_SIZE}
+              allowEmpty
+              value={height}
+              invalid={!!hErr}
+              onValueChange={setHeight}
+            />
           </FieldRow>
         </div>
         <button type="submit" hidden />
@@ -128,8 +171,8 @@ export function NewScenarioDialog({ mode, initial, onSubmit, onCancel }: BoardSi
 export function ErrorList({ intro, errors }: { intro: string; errors: readonly string[] }) {
   return (
     <>
-      <p style={{ margin: 0 }}>{intro}</p>
-      <ul>
+      <p>{intro}</p>
+      <ul className="mt-1.5 max-h-60 list-disc overflow-auto pl-4.5">
         {errors.slice(0, 50).map((e, i) => (
           <li key={i}>{e}</li>
         ))}

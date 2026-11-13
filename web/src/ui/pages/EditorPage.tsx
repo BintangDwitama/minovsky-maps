@@ -146,7 +146,7 @@ function Editor({ services }: { services: EditorServices }) {
         void onSave();
         return;
       }
-      if (document.querySelector('.dialog-backdrop')) return;
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return;
       if (isTyping(e.target)) return;
       if (mod && key === 'z' && !e.shiftKey) {
         e.preventDefault();
