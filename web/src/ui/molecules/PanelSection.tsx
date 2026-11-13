@@ -7,15 +7,17 @@ export interface PanelSectionProps {
   /** Muted body text, for empty states. */
   muted?: boolean;
   className?: string;
+  testId?: string;
   children?: ReactNode;
 }
 
 /** One armour plate of the right-hand panel, separated from the next by an engraved line. */
-export function PanelSection({ title, muted, className, children }: PanelSectionProps) {
+export function PanelSection({ title, muted, className, testId, children }: PanelSectionProps) {
   return (
     <section
       className={cn('min-w-0 p-3 panel-line', muted && 'text-ui text-muted', className)}
       data-empty={muted || undefined}
+      data-testid={testId}
     >
       <h2 className="mb-2.5 flex min-h-6 items-center justify-between gap-2 text-head font-semibold text-text font-stretch-condensed">
         {title}

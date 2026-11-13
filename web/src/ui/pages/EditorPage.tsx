@@ -52,6 +52,7 @@ import { PUBLISH_FAILURE } from '../publishMessages';
 import { appAddress, goToPath, navigate, replaceHashSilently, viewHash } from '../router';
 import { GoalsEditor } from '../organisms/GoalsEditor';
 import { HexBoard } from '../organisms/HexBoard';
+import { AnalysisPanel } from '../organisms/AnalysisPanel';
 import { ScenarioInspector } from '../organisms/ScenarioInspector';
 import { ScenarioSettingsPanel } from '../organisms/ScenarioSettingsPanel';
 import { StatusBar } from '../organisms/StatusBar';
@@ -395,7 +396,8 @@ function Editor({
           if (!r.ok) ui.flash(r.reason);
         }
       } else if (e.key === 'Escape') {
-        ui.patch({ selectedId: null, highlight: [], tool: 'select' });
+        ui.patch({ selectedId: null, highlight: [] });
+        ui.setTool('select'); // also clears the analysis probe
       } else if (!mod && !e.altKey) {
         const t = TOOL_SHORTCUTS[key];
         if (t) ui.setTool(t);
@@ -428,6 +430,7 @@ function Editor({
       board={<HexBoard requestLabel={requestLabel} />}
       right={
         <>
+          <AnalysisPanel />
           <ScenarioInspector />
           <WarningsPanel />
           <PillarCount />

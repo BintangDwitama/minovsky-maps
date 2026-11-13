@@ -3,7 +3,31 @@ import type { Axial } from '../domain/hex';
 import type { ComponentKind, Owner, TerrainTag } from '../domain/scenario';
 import { Store } from './store';
 
-export type ToolId = 'select' | 'terrain' | 'erase' | 'raise' | 'lower' | 'setLevel' | 'place';
+export type ToolId =
+  'select' | 'terrain' | 'erase' | 'raise' | 'lower' | 'setLevel' | 'place' | 'analyse';
+
+/** Settings of the Analyse tool: a hypothetical unit ("probe") and what to show for it. */
+export interface AnalysisSettings {
+  readonly probe: Axial | null;
+  readonly side: 'A' | 'B';
+  readonly mode: 'los' | 'reach' | 'both';
+  /** Movement of the action (3 = Advance). */
+  readonly move: number;
+  readonly speed: number;
+  /** Set by hand, standing in for enemy units (scenarios contain none). */
+  readonly engaged: boolean;
+  readonly hover: boolean;
+}
+
+export const initialAnalysis: AnalysisSettings = {
+  probe: null,
+  side: 'A',
+  mode: 'both',
+  move: 3,
+  speed: 0,
+  engaged: false,
+  hover: false,
+};
 
 export interface PaletteState {
   readonly kind: ComponentKind;
@@ -27,6 +51,7 @@ export interface UiState {
   readonly message: string | null;
   readonly zoom: number;
   readonly pan: { readonly x: number; readonly y: number };
+  readonly analysis: AnalysisSettings;
 }
 
 export const initialUiState: UiState = {
@@ -47,6 +72,7 @@ export const initialUiState: UiState = {
   message: null,
   zoom: 1,
   pan: { x: 0, y: 0 },
+  analysis: initialAnalysis,
 };
 
 export class UiStore extends Store<UiState> {
@@ -59,7 +85,14 @@ export class UiStore extends Store<UiState> {
   }
 
   setTool(tool: ToolId): void {
-    this.patch({ tool, message: null });
+    // leaving the Analyse tool removes the probe (overlays only exist while analysing)
+    const analysis =
+      tool === 'analyse' ? this.current.analysis : { ...this.current.analysis, probe: null };
+    this.patch({ tool, message: null, analysis });
+  }
+
+  setAnalysis(p: Partial<AnalysisSettings>): void {
+    this.patch({ analysis: { ...this.current.analysis, ...p } });
   }
 
   setPalette(p: Partial<PaletteState>): void {

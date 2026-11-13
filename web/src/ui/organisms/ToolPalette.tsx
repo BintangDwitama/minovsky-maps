@@ -23,6 +23,7 @@ export const TOOL_SHORTCUTS: Partial<Record<string, ToolId>> = {
   d: 'lower',
   l: 'setLevel',
   p: 'place',
+  a: 'analyse',
 };
 
 /** Board tools: select, terrain painting and elevation. */
@@ -104,6 +105,18 @@ export function ToolPalette() {
             />
           </div>
         ) : null}
+      </ToolGroup>
+
+      <ToolGroup title="Test the map">
+        <ToolStack>
+          <ToolButton
+            icon="eye"
+            label="Sight & reach"
+            shortcut="A"
+            active={tool === 'analyse'}
+            onSelect={pick('analyse')}
+          />
+        </ToolStack>
       </ToolGroup>
     </>
   );

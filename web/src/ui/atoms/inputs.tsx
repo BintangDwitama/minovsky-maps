@@ -78,6 +78,32 @@ export function NumberInput({
   );
 }
 
+export interface CheckboxProps {
+  label: string;
+  checked: boolean;
+  onChange(checked: boolean): void;
+  hint?: string;
+  disabled?: boolean;
+}
+
+export function Checkbox({ label, checked, onChange, hint, disabled }: CheckboxProps) {
+  return (
+    <label className="mb-1.5 flex cursor-pointer items-start gap-2 has-disabled:cursor-default has-disabled:opacity-60">
+      <input
+        type="checkbox"
+        className="mt-0.5 size-4 flex-none accent-(--accent)"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span>
+        {label}
+        {hint ? <span className="block text-xs text-muted">{hint}</span> : null}
+      </span>
+    </label>
+  );
+}
+
 export interface SelectOption<T extends string> {
   value: T;
   label: string;

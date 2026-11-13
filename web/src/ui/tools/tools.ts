@@ -75,13 +75,25 @@ const terrainTool = (): Tool =>
   });
 
 const eraseTool = (): Tool =>
-  strokeTool('erase', 'Erase terrain', () => (hex, c) => void c.session.execute(clearTagsCmd([hex])));
+  strokeTool(
+    'erase',
+    'Erase terrain',
+    () => (hex, c) => void c.session.execute(clearTagsCmd([hex])),
+  );
 
 const raiseTool = (): Tool =>
-  strokeTool('raise', 'Raise', () => (hex, c) => void c.session.execute(adjustElevationCmd([hex], 1)));
+  strokeTool(
+    'raise',
+    'Raise',
+    () => (hex, c) => void c.session.execute(adjustElevationCmd([hex], 1)),
+  );
 
 const lowerTool = (): Tool =>
-  strokeTool('lower', 'Lower', () => (hex, c) => void c.session.execute(adjustElevationCmd([hex], -1)));
+  strokeTool(
+    'lower',
+    'Lower',
+    () => (hex, c) => void c.session.execute(adjustElevationCmd([hex], -1)),
+  );
 
 const setLevelTool = (): Tool =>
   strokeTool('setLevel', 'Set level', (_h, ctx) => {
@@ -161,7 +173,19 @@ const selectTool = (): Tool => {
   };
 };
 
+/** Places the analysis probe. Touches UI state only: never the scenario or its history. */
+const analyseTool = (): Tool => ({
+  id: 'analyse',
+  cursor: 'crosshair',
+  onDown(hex, ctx) {
+    ctx.ui.setAnalysis({ probe: hex });
+  },
+  onMove() {},
+  onUp() {},
+});
+
 export const createTools = (): Record<ToolId, Tool> => ({
+  analyse: analyseTool(),
   select: selectTool(),
   terrain: terrainTool(),
   erase: eraseTool(),

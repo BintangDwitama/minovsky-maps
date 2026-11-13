@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent,
+  type WheelEvent,
+} from 'react';
 import { type Axial, pixelToAxial } from '../../domain/hex';
 import { rectangleSize } from '../../domain/scenario';
 import { buildIndex, isOnBoard } from '../../domain/scenarioIndex';
@@ -6,6 +14,7 @@ import { IconButton } from '../atoms/Button';
 import { useEditor, useServices, useUi } from '../hooks/editorContext';
 import { createTools, type ToolContext } from '../tools/tools';
 import { BOARD } from '../theme';
+import { AnalysisOverlay } from './AnalysisOverlay';
 import { BoardView, boardBounds } from './BoardView';
 
 const SIZE = BOARD.hexSize;
@@ -20,14 +29,21 @@ export function HexBoard({ requestLabel }: { requestLabel: ToolContext['requestL
   const services = useServices();
   const { session, ui, ids } = services;
   const { scenario } = useEditor();
-  const { tool: toolId, selectedId, highlight, hover, zoom, pan } = useUi();
+  const { tool: toolId, selectedId, highlight, hover, zoom, pan, analysis } = useUi();
   const tools = useMemo(createTools, []);
   const tool = tools[toolId];
-  const ctx = useMemo<ToolContext>(() => ({ session, ui, ids, requestLabel }), [session, ui, ids, requestLabel]);
+  const ctx = useMemo<ToolContext>(
+    () => ({ session, ui, ids, requestLabel }),
+    [session, ui, ids, requestLabel],
+  );
 
   const svgRef = useRef<SVGSVGElement>(null);
   const contentRef = useRef<SVGGElement>(null);
-  const stroke = useRef<{ kind: 'tool' | 'pan'; pointerId: number; last?: { x: number; y: number } } | null>(null);
+  const stroke = useRef<{
+    kind: 'tool' | 'pan';
+    pointerId: number;
+    last?: { x: number; y: number };
+  } | null>(null);
   const [spaceHeld, setSpaceHeld] = useState(false);
 
   // bounds only depend on board shape, not on every edit
@@ -82,7 +98,11 @@ export function HexBoard({ requestLabel }: { requestLabel: ToolContext['requestL
     if (stroke.current) return;
     if (e.button === 1 || (e.button === 0 && spaceHeld)) {
       e.preventDefault();
-      stroke.current = { kind: 'pan', pointerId: e.pointerId, last: toView(e.clientX, e.clientY) ?? undefined };
+      stroke.current = {
+        kind: 'pan',
+        pointerId: e.pointerId,
+        last: toView(e.clientX, e.clientY) ?? undefined,
+      };
       e.currentTarget.setPointerCapture(e.pointerId);
       return;
     }
@@ -117,7 +137,8 @@ export function HexBoard({ requestLabel }: { requestLabel: ToolContext['requestL
     const s = stroke.current;
     if (!s || s.pointerId !== e.pointerId) return;
     stroke.current = null;
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    if (e.currentTarget.hasPointerCapture(e.pointerId))
+      e.currentTarget.releasePointerCapture(e.pointerId);
     if (s.kind === 'tool') tool.onUp(ctx);
   };
 
@@ -176,7 +197,16 @@ export function HexBoard({ requestLabel }: { requestLabel: ToolContext['requestL
       >
         <g transform={transform}>
           <g ref={contentRef}>
-            <BoardView scenario={scenario} size={SIZE} selectedId={selectedId} highlight={highlight} hover={hover} />
+            <BoardView
+              scenario={scenario}
+              size={SIZE}
+              selectedId={selectedId}
+              highlight={highlight}
+              hover={hover}
+            />
+            {toolId === 'analyse' ? (
+              <AnalysisOverlay scenario={scenario} analysis={analysis} hover={hover} size={SIZE} />
+            ) : null}
           </g>
         </g>
       </svg>
@@ -185,10 +215,17 @@ export function HexBoard({ requestLabel }: { requestLabel: ToolContext['requestL
         className="pointer-events-none absolute bottom-3 left-4 text-[28px] leading-none font-extrabold tracking-[0.04em] text-deck-stencil font-stretch-condensed select-none"
         aria-hidden
       >
-        {deckSize ? `Deck ${deckSize.width} × ${deckSize.height}` : `Deck: ${scenario.board.hexes.length} hexes`}
+        {deckSize
+          ? `Deck ${deckSize.width} × ${deckSize.height}`
+          : `Deck: ${scenario.board.hexes.length} hexes`}
       </div>
       <div className="absolute right-2.5 bottom-2.5 flex gap-1">
-        <IconButton className="bg-panel" icon="zoomIn" label="Zoom in" onClick={() => zoomAt(1.25)} />
+        <IconButton
+          className="bg-panel"
+          icon="zoomIn"
+          label="Zoom in"
+          onClick={() => zoomAt(1.25)}
+        />
         <IconButton
           className="bg-panel"
           icon="zoomOut"
