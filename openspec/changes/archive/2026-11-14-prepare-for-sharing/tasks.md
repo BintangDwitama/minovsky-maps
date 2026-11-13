@@ -30,4 +30,4 @@
 - [x] 6.2 Lint, typecheck, web and server tests, build pass
 - [x] 6.3 Local end-to-end with Cloudflare test keys and a fake email endpoint: publish/update with token, scripted publish without token rejected, report stored and "emailed", My scenarios list (open, edit, forget)
 - [x] 6.4 Re-run the Phase 1, share, publishing and analysis walkthroughs (no regressions)
-- [ ] 6.5 Production check after the owner configures Turnstile and Resend: publish on the live site and receive a test report email
+- [x] 6.5 Production check after the owner configures Turnstile and Resend: publish on the live site and receive a test report email
