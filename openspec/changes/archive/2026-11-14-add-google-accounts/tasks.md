@@ -41,5 +41,5 @@
 
 - [x] 7.1 README: deploy section 6 (Google OAuth client, test users, publishing the consent screen, env vars, redirect URIs); takedown SQL sets `removed_reason`
 - [x] 7.2 `go test ./...`, `go vet`, and web lint, typecheck, test and build pass; CI green
-- [ ] 7.3 Local end-to-end with the real Google client on localhost: sign in, claim, publish, update, delete, sign out, delete account
-- [ ] 7.4 After deploy: the same on pages.dev, plus a phone check (sign-in returns to the editor with the draft intact)
+- [x] 7.3 Local end-to-end with the real Google client on localhost: sign in, claim, publish, update, delete, sign out, delete account
+- [x] 7.4 After deploy: the same on pages.dev, plus a phone check (sign-in returns to the editor with the draft intact)
