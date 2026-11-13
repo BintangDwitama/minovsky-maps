@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { removeComponentCmd, resizeBoardCmd, rotateCarrierCmd } from '../../application/commands';
 import { EditorSession } from '../../application/editorSession';
+import {
+  editablePublication,
+  editPublished,
+  openPublished,
+  privateEditLink,
+  publishScenario,
+  shortLink,
+  updatePublished,
+  type PublishingResult,
+} from '../../application/publishing';
 import { createShareLink, editSharedCopy, openScenarioLink } from '../../application/shareLink';
 import { UiStore } from '../../application/uiState';
 import {
@@ -10,8 +20,10 @@ import {
   openFromBlob,
   openFromPicker,
   restoreDraft,
+  saveBlockers,
   saveScenario,
   startDraftAutosave,
+  type Draft,
   type UseCaseResult,
 } from '../../application/useCases';
 import { planResize } from '../../domain/operations';
@@ -19,14 +31,25 @@ import { createScenario, rectangleSize, type Scenario } from '../../domain/scena
 import { BrowserClipboard } from '../../infrastructure/browserClipboard';
 import { BrowserFileReader, DownloadFileWriter } from '../../infrastructure/browserFiles';
 import { FflateCompressor } from '../../infrastructure/fflateCompressor';
+import { HttpScenarioPublisher } from '../../infrastructure/httpScenarioPublisher';
 import { LocalStorageDraftStore } from '../../infrastructure/localStorageDraftStore';
+import { LocalStoragePublicationStore } from '../../infrastructure/localStoragePublicationStore';
 import { RandomIdGenerator } from '../../infrastructure/randomIds';
 import { SvgPngExporter } from '../../infrastructure/svgPngExporter';
 import { renderBoardSvg } from '../export/renderBoardSvg';
 import { EditorProvider, type EditorServices, useEditor } from '../hooks/editorContext';
 import { LINK_FAILURE } from '../linkMessages';
-import { ConfirmDialog, ErrorList, NewScenarioDialog, ShareLinkDialog } from '../organisms/dialogs';
-import { appAddress, navigate, replaceHashSilently, viewHash } from '../router';
+import {
+  BusyDialog,
+  ConfirmDialog,
+  ErrorList,
+  NewScenarioDialog,
+  PublishDialog,
+  ShareLinkDialog,
+  type PublishPhase,
+} from '../organisms/dialogs';
+import { PUBLISH_FAILURE } from '../publishMessages';
+import { appAddress, goToPath, navigate, replaceHashSilently, viewHash } from '../router';
 import { GoalsEditor } from '../organisms/GoalsEditor';
 import { HexBoard } from '../organisms/HexBoard';
 import { ScenarioInspector } from '../organisms/ScenarioInspector';
@@ -48,18 +71,22 @@ const buildServices = (): EditorServices => ({
   exporter: new SvgPngExporter(renderBoardSvg),
   compressor: new FflateCompressor(),
   clipboard: new BrowserClipboard(),
+  publisher: new HttpScenarioPublisher(),
+  publications: new LocalStoragePublicationStore(),
 });
 
 export interface EditorPageProps {
   /** A share link (`<codec>.<payload>`) to open as an unsaved copy ("Edit a copy"). */
   importLink?: string | null;
+  /** A published scenario id to open for updating ("Edit" on its sheet). */
+  publishedId?: string | null;
 }
 
-export function EditorPage({ importLink = null }: EditorPageProps) {
+export function EditorPage({ importLink = null, publishedId = null }: EditorPageProps) {
   const [services] = useState(buildServices);
   return (
     <EditorProvider services={services}>
-      <Editor services={services} importLink={importLink} />
+      <Editor services={services} importLink={importLink} publishedId={publishedId} />
     </EditorProvider>
   );
 }
@@ -70,17 +97,30 @@ type DialogState =
   | { kind: 'resize'; initial?: { width: number; height: number } }
   | { kind: 'confirm-resize'; width: number; height: number; removed: number }
   | { kind: 'unsaved'; proceed: () => void }
-  | { kind: 'draft'; draft: Scenario }
+  | { kind: 'draft'; draft: Draft }
   | { kind: 'share'; link: string; copied: boolean; long: boolean }
-  | { kind: 'replace-with-shared'; scenario: Scenario; link: string }
+  | { kind: 'replace-with-shared'; scenario: Scenario; apply(): void; back(): void }
+  | { kind: 'publish'; mode: 'publish' | 'update'; phase: PublishPhase }
+  | { kind: 'busy'; title: string; slow: boolean }
   | { kind: 'errors'; title: string; intro: string; errors: string[] };
 
 const isTyping = (t: EventTarget | null) =>
   t instanceof HTMLElement && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable);
 
-function Editor({ services, importLink }: { services: EditorServices; importLink: string | null }) {
+function Editor({
+  services,
+  importLink,
+  publishedId,
+}: {
+  services: EditorServices;
+  importLink: string | null;
+  publishedId: string | null;
+}) {
   const { session, ui, reader, writer, drafts, exporter, compressor, clipboard } = services;
-  const { dirty } = useEditor();
+  const { publisher, publications } = services;
+  const { dirty, publication } = useEditor();
+  const publishMode =
+    publication && publications.get(publication.id) ? ('update' as const) : ('publish' as const);
   const [dialog, setDialog] = useState<DialogState>({ kind: 'none' });
   const close = useCallback(() => setDialog({ kind: 'none' }), []);
 
@@ -149,6 +189,64 @@ function Editor({ services, importLink }: { services: EditorServices; importLink
     setDialog({ kind: 'share', link: r.link, copied, long: r.long });
   };
 
+  /* ---- publish / update ---- */
+  const publishFailed = (r: Extract<PublishingResult<object>, { ok: false }>) => {
+    const msg = PUBLISH_FAILURE[r.failure];
+    setDialog({
+      kind: 'errors',
+      title: msg.title,
+      intro: msg.intro,
+      errors: msg.showErrors ? r.errors : [],
+    });
+  };
+  const markSlow = () =>
+    setDialog((d) =>
+      d.kind === 'publish' && d.phase.kind === 'working'
+        ? { ...d, phase: { kind: 'working', slow: true } }
+        : d.kind === 'busy'
+          ? { ...d, slow: true }
+          : d,
+    );
+  const runPublish = async (mode: 'publish' | 'update') => {
+    setDialog({ kind: 'publish', mode, phase: { kind: 'working', slow: false } });
+    const r =
+      mode === 'publish'
+        ? await publishScenario(session, publisher, publications, { onSlow: markSlow })
+        : await updatePublished(session, publisher, publications, { onSlow: markSlow });
+    if (!r.ok) {
+      publishFailed(r);
+      return;
+    }
+    const link = shortLink(appAddress(), r.publication.id);
+    const copied = mode === 'publish' ? await clipboard.writeText(link) : false;
+    setDialog({
+      kind: 'publish',
+      mode,
+      phase: {
+        kind: 'done',
+        shortLink: link,
+        editLink:
+          mode === 'publish'
+            ? privateEditLink(appAddress(), r.publication.id, r.publication.editToken)
+            : null,
+        copied,
+      },
+    });
+  };
+  const onPublish = () => {
+    session.commit();
+    const blockers = saveBlockers(session.scenario);
+    if (blockers.length > 0) {
+      publishFailed({ ok: false, failure: 'blocked', errors: blockers });
+      return;
+    }
+    if (editablePublication(session, publications)) void runPublish('update');
+    else setDialog({ kind: 'publish', mode: 'publish', phase: { kind: 'confirm' } });
+  };
+
+  /* ---- start a sleeping API early, so publishing is quick ---- */
+  useEffect(() => publisher.wake(), [publisher]);
+
   const onResizeRequest = () =>
     setDialog({ kind: 'resize', initial: rectangleSize(session.scenario) ?? undefined });
   const applyResize = (width: number, height: number) => {
@@ -168,7 +266,7 @@ function Editor({ services, importLink }: { services: EditorServices; importLink
   );
 
   /* ---- draft restore + autosave (an "Edit a copy" import handles the draft itself) ---- */
-  const importedAtMount = useRef(importLink !== null);
+  const importedAtMount = useRef(importLink !== null || publishedId !== null);
   useEffect(() => {
     if (!importedAtMount.current) {
       const draft = findDraft(drafts);
@@ -194,13 +292,64 @@ function Editor({ services, importLink }: { services: EditorServices; importLink
       });
       return;
     }
-    if (session.getSnapshot().dirty || findDraft(drafts)) {
-      setDialog({ kind: 'replace-with-shared', scenario: r.scenario, link: importLink });
-    } else {
+    const apply = () => {
       editSharedCopy(session, r.scenario);
       resetView();
+    };
+    if (session.getSnapshot().dirty || findDraft(drafts)) {
+      setDialog({
+        kind: 'replace-with-shared',
+        scenario: r.scenario,
+        apply,
+        back: () => navigate(viewHash(importLink)),
+      });
+    } else {
+      apply();
     }
   }, [importLink, compressor, session, drafts, resetView]);
+
+  /* ---- "Edit" a published scenario (this browser holds its edit token) ---- */
+  // latest callbacks for the async load below, without re-running the effect
+  const markSlowRef = useRef(markSlow);
+  const publishFailedRef = useRef(publishFailed);
+  const cancelRef = useRef<() => void>(() => undefined);
+  useEffect(() => {
+    markSlowRef.current = markSlow;
+    publishFailedRef.current = publishFailed;
+  });
+  const handledPublished = useRef<string | null>(null);
+  useEffect(() => {
+    if (!publishedId || handledPublished.current === publishedId) return;
+    handledPublished.current = publishedId;
+    replaceHashSilently('#/');
+    let cancelled = false;
+    setDialog({ kind: 'busy', title: 'Opening published scenario', slow: false });
+    void openPublished(publishedId, publisher, { onSlow: markSlowRef.current }).then((r) => {
+      if (cancelled) return;
+      if (!r.ok) {
+        publishFailedRef.current(r);
+        return;
+      }
+      const apply = () => {
+        editPublished(session, publishedId, r.scenario);
+        resetView();
+        setDialog({ kind: 'none' });
+      };
+      if (session.getSnapshot().dirty || findDraft(drafts)) {
+        setDialog({
+          kind: 'replace-with-shared',
+          scenario: r.scenario,
+          apply,
+          back: () => goToPath(`/s/${publishedId}`),
+        });
+      } else {
+        apply();
+      }
+    });
+    cancelRef.current = () => {
+      cancelled = true;
+    };
+  }, [publishedId, publisher, session, drafts, resetView]);
 
   /* ---- leaving the page with unsaved changes ---- */
   useEffect(() => {
@@ -266,6 +415,8 @@ function Editor({ services, importLink }: { services: EditorServices; importLink
           onSave={() => void onSave()}
           onShare={() => void onShare()}
           onExport={() => void onExport()}
+          onPublish={onPublish}
+          publishMode={publishMode}
         />
       }
       left={
@@ -357,7 +508,7 @@ function Editor({ services, importLink }: { services: EditorServices; importLink
               }}
             >
               You have unsaved work from a previous session:{' '}
-              <strong>{dialog.draft.meta.name}</strong>.
+              <strong>{dialog.draft.scenario.meta.name}</strong>.
             </ConfirmDialog>
           ) : null}
 
@@ -370,6 +521,27 @@ function Editor({ services, importLink }: { services: EditorServices; importLink
             />
           ) : null}
 
+          {dialog.kind === 'publish' ? (
+            <PublishDialog
+              mode={dialog.mode}
+              name={session.scenario.meta.name}
+              phase={dialog.phase}
+              onConfirm={() => void runPublish('publish')}
+              onClose={close}
+            />
+          ) : null}
+
+          {dialog.kind === 'busy' ? (
+            <BusyDialog
+              title={dialog.title}
+              slow={dialog.slow}
+              onCancel={() => {
+                cancelRef.current();
+                close();
+              }}
+            />
+          ) : null}
+
           {dialog.kind === 'replace-with-shared' ? (
             <ConfirmDialog
               title="Replace your unsaved work?"
@@ -378,11 +550,10 @@ function Editor({ services, importLink }: { services: EditorServices; importLink
               cancelLabel="Keep my work"
               onCancel={() => {
                 close();
-                navigate(viewHash(dialog.link));
+                dialog.back();
               }}
               onConfirm={() => {
-                editSharedCopy(session, dialog.scenario);
-                resetView();
+                dialog.apply();
                 close();
               }}
             >

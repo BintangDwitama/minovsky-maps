@@ -1,0 +1,13 @@
+{
+  "$comment": "Shared by the web (TypeScript) and server (Go) test suites. Every file in examples/ and examples/invalid/ must be listed. For invalid files, \"rejectedBy\" is \"schema\" (JSON Schema or schemaVersion) or the integrity rule code that must be reported.",
+  "valid": ["minimal.scenario.json", "full.scenario.json", "sample-mesa.scenario.json"],
+  "invalid": {
+    "duplicate-hex.json": { "rejectedBy": "duplicate-hex" },
+    "future-version.json": { "rejectedBy": "schema" },
+    "missing-name.json": { "rejectedBy": "schema" },
+    "neutral-base.json": { "rejectedBy": "schema" },
+    "off-board-carrier.json": { "rejectedBy": "component-off-board" },
+    "off-board-elevation.json": { "rejectedBy": "elevation-off-board" },
+    "unknown-tag.json": { "rejectedBy": "schema" }
+  }
+}

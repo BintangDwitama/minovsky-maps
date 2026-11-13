@@ -40,3 +40,55 @@ export interface Clipboard {
   /** Resolves false (never rejects) when the clipboard can't be written. */
   writeText(text: string): Promise<boolean>;
 }
+
+/* ---------------- publishing (API) ---------------- */
+
+/** Why an API call failed; the UI words each kind differently. */
+export type ApiFailure =
+  | 'invalid' // 400/413/422: the scenario or request was rejected
+  | 'not-found' // 404: unknown or taken-down scenario
+  | 'forbidden' // 401/403: missing or wrong edit token
+  | 'rate-limited' // 429
+  | 'unavailable'; // network error, timeout, 5xx
+
+export type ApiResult<T> =
+  { ok: true; value: T } | { ok: false; failure: ApiFailure; errors: string[] };
+
+export interface CallOptions {
+  /** Called once if the server has not answered after a few seconds (it may be waking up). */
+  onSlow?: () => void;
+}
+
+export interface ScenarioPublisher {
+  publish(
+    s: Scenario,
+    opts?: CallOptions,
+  ): Promise<ApiResult<{ id: string; editToken: string; updatedAt: string }>>;
+  update(
+    id: string,
+    editToken: string,
+    s: Scenario,
+    opts?: CallOptions,
+  ): Promise<ApiResult<{ updatedAt: string }>>;
+  /** The latest version, as an unvalidated document (callers run `loadScenario`). */
+  fetch(
+    id: string,
+    opts?: CallOptions,
+  ): Promise<ApiResult<{ scenario: unknown; updatedAt: string }>>;
+  /** Fire-and-forget request that starts a sleeping server early. Never throws. */
+  wake(): void;
+}
+
+/** A scenario this browser can edit. */
+export interface Publication {
+  readonly id: string;
+  readonly editToken: string;
+  readonly name: string;
+}
+
+/** Edit tokens remembered by this browser. Implementations must never throw. */
+export interface PublicationStore {
+  get(id: string): Publication | null;
+  save(p: Publication): void;
+  list(): Publication[];
+}

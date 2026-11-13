@@ -8,10 +8,21 @@ export interface ToolbarProps {
   onSave(): void;
   onShare(): void;
   onExport(): void;
+  onPublish(): void;
+  /** Update when the open document is a published scenario this browser can edit. */
+  publishMode: 'publish' | 'update';
 }
 
 /** The navy frame along the top: brand, file actions, history, scenario title. */
-export function Toolbar({ onNew, onOpen, onSave, onShare, onExport }: ToolbarProps) {
+export function Toolbar({
+  onNew,
+  onOpen,
+  onSave,
+  onShare,
+  onExport,
+  onPublish,
+  publishMode,
+}: ToolbarProps) {
   const { session } = useServices();
   const { scenario, canUndo, canRedo, dirty, undoLabel, redoLabel } = useEditor();
   return (
@@ -38,6 +49,18 @@ export function Toolbar({ onNew, onOpen, onSave, onShare, onExport }: ToolbarPro
         title="Copy a link that opens this scenario for anyone"
       >
         Share
+      </Button>
+      <Button
+        variant="frame"
+        icon="upload"
+        onClick={onPublish}
+        title={
+          publishMode === 'update'
+            ? 'Save this version to the published scenario; its short link shows it immediately'
+            : 'Publish to get a short link you can keep updating'
+        }
+      >
+        {publishMode === 'update' ? 'Update' : 'Publish'}
       </Button>
       <Button variant="frame" icon="image" onClick={onExport}>
         Export PNG

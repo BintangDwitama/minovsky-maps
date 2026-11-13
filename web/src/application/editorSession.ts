@@ -20,6 +20,13 @@ export interface EditorSnapshot {
   readonly redoLabel: string | null;
   /** True while a transaction (drag stroke / text editing) is open. */
   readonly inTransaction: boolean;
+  /** The published scenario this document is (set after Publish or "Edit" of a published one). */
+  readonly publication: PublicationRef | null;
+}
+
+/** Link between the open document and a published scenario. Never written into scenario files. */
+export interface PublicationRef {
+  readonly id: string;
 }
 
 interface HistoryEntry {
@@ -44,9 +51,13 @@ export class EditorSession implements ReadableStore<EditorSnapshot> {
   private past: HistoryEntry[] = [];
   private future: HistoryEntry[] = [];
   private tx: { base: Scenario; label: string } | null = null;
+  private publication: PublicationRef | null = null;
   private readonly store: Store<EditorSnapshot>;
 
-  constructor(initial: Scenario, private readonly limit = HISTORY_LIMIT) {
+  constructor(
+    initial: Scenario,
+    private readonly limit = HISTORY_LIMIT,
+  ) {
     this.current = initial;
     this.saved = initial;
     this.store = new Store(this.snapshot());
@@ -68,6 +79,7 @@ export class EditorSession implements ReadableStore<EditorSnapshot> {
       undoLabel: this.past.at(-1)?.label ?? null,
       redoLabel: this.future.at(-1)?.label ?? null,
       inTransaction: this.tx !== null,
+      publication: this.publication,
     };
   }
 
@@ -140,13 +152,23 @@ export class EditorSession implements ReadableStore<EditorSnapshot> {
 
   /* ---- lifecycle ---- */
 
-  /** Replace the document (new / load). Clears history; the new document counts as saved. */
-  reset(s: Scenario, opts: { dirty?: boolean } = {}): void {
+  /**
+   * Replace the document (new / load). Clears history; the new document counts as saved.
+   * The link to a published scenario is cleared unless `publication` is given.
+   */
+  reset(s: Scenario, opts: { dirty?: boolean; publication?: PublicationRef | null } = {}): void {
     this.tx = null;
     this.past = [];
     this.future = [];
     this.current = s;
     this.saved = opts.dirty ? ({} as Scenario) : s;
+    this.publication = opts.publication ?? null;
+    this.emit();
+  }
+
+  /** Link the open document to a published scenario (after a successful publish). */
+  setPublication(p: PublicationRef | null): void {
+    this.publication = p;
     this.emit();
   }
 

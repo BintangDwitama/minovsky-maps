@@ -7,7 +7,7 @@ import {
   scenarioFileName,
   serializeScenario,
 } from '../domain/serialization';
-import type { EditorSession } from './editorSession';
+import type { EditorSession, PublicationRef } from './editorSession';
 import type { DraftStore, FileWriter, ImageExporter, ScenarioFileReader } from './ports';
 
 export type UseCaseResult = { ok: true } | { ok: false; errors: string[] } | { ok: 'cancelled' };
@@ -117,16 +117,18 @@ export const startDraftAutosave = (
 ): (() => void) => {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let last = session.getSnapshot().scenario;
+  let lastPublication = session.getSnapshot().publication;
   const flush = () => {
     timer = null;
     const snap = session.getSnapshot();
-    if (snap.dirty) drafts.save(serializeScenario(snap.scenario));
+    if (snap.dirty) drafts.save(serializeDraft(snap.scenario, snap.publication));
     else drafts.clear();
   };
   const unsubscribe = session.subscribe(() => {
     const snap = session.getSnapshot();
-    if (snap.scenario === last && snap.dirty) return;
+    if (snap.scenario === last && snap.publication === lastPublication && snap.dirty) return;
     last = snap.scenario;
+    lastPublication = snap.publication;
     if (timer) clearTimeout(timer);
     timer = setTimeout(flush, delayMs);
   });
@@ -139,19 +141,42 @@ export const startDraftAutosave = (
   };
 };
 
-/** A restorable draft, if one exists and still loads. */
-export const findDraft = (drafts: DraftStore): Scenario | null => {
+export interface Draft {
+  readonly scenario: Scenario;
+  readonly publication: PublicationRef | null;
+}
+
+/** Drafts wrap the scenario so editor-only state (publication) survives a reload. */
+const serializeDraft = (scenario: Scenario, publication: PublicationRef | null): string =>
+  JSON.stringify({ draft: 2, scenario, publication });
+
+/** A restorable draft, if one exists and still loads. Accepts drafts saved as a bare scenario too. */
+export const findDraft = (drafts: DraftStore): Draft | null => {
   const text = drafts.load();
   if (!text) return null;
-  const r = loadScenario(text);
+  let doc: unknown = null;
+  let publication: PublicationRef | null = null;
+  try {
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+    if (parsed && parsed.draft === 2 && 'scenario' in parsed) {
+      doc = parsed.scenario;
+      const p = parsed.publication as { id?: unknown } | null;
+      publication = p && typeof p.id === 'string' ? { id: p.id } : null;
+    } else {
+      doc = parsed; // pre-publishing drafts: the scenario itself
+    }
+  } catch {
+    doc = null;
+  }
+  const r = loadScenario(doc);
   if (!r.ok) {
     drafts.clear();
     return null;
   }
-  return r.scenario;
+  return { scenario: r.scenario, publication };
 };
 
-export const restoreDraft = (session: EditorSession, draft: Scenario): void => {
+export const restoreDraft = (session: EditorSession, draft: Draft): void => {
   // restored drafts are unsaved work: keep them marked dirty
-  session.reset(draft, { dirty: true });
+  session.reset(draft.scenario, { dirty: true, publication: draft.publication });
 };

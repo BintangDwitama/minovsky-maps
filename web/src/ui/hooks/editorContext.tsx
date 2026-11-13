@@ -7,7 +7,9 @@ import type {
   FileWriter,
   IdGenerator,
   ImageExporter,
+  PublicationStore,
   ScenarioFileReader,
+  ScenarioPublisher,
 } from '../../application/ports';
 import type { UiState, UiStore } from '../../application/uiState';
 import { computeWarnings, type Warning } from '../../domain/warnings';
@@ -23,6 +25,8 @@ export interface EditorServices {
   readonly exporter: ImageExporter;
   readonly compressor: Compressor;
   readonly clipboard: Clipboard;
+  readonly publisher: ScenarioPublisher;
+  readonly publications: PublicationStore;
 }
 
 const Ctx = createContext<EditorServices | null>(null);

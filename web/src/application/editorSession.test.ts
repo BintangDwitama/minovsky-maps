@@ -4,7 +4,14 @@ import { createScenario } from '../domain/scenario';
 import { adjustElevationCmd, paintTagsCmd, placeComponentCmd, updateMetaCmd } from './commands';
 import { EditorSession } from './editorSession';
 import type { DraftStore, FileWriter } from './ports';
-import { findDraft, newScenario, openScenarioText, restoreDraft, saveScenario, startDraftAutosave } from './useCases';
+import {
+  findDraft,
+  newScenario,
+  openScenarioText,
+  restoreDraft,
+  saveScenario,
+  startDraftAutosave,
+} from './useCases';
 import { serializeScenario } from '../domain/serialization';
 
 const at = (col: number, row: number) => offsetToAxial({ col, row });
@@ -32,8 +39,13 @@ describe('EditorSession history', () => {
 
   it('no-op commands and failures do not create history', () => {
     const s = session();
-    expect(s.execute(paintTagsCmd([at(0, 0)], 'water', 'remove'))).toEqual({ ok: true, changed: false });
-    const r = s.execute(placeComponentCmd('carrier', { id: 'c', hex: at(0, 0), owner: 'A', facing: 0 }));
+    expect(s.execute(paintTagsCmd([at(0, 0)], 'water', 'remove'))).toEqual({
+      ok: true,
+      changed: false,
+    });
+    const r = s.execute(
+      placeComponentCmd('carrier', { id: 'c', hex: at(0, 0), owner: 'A', facing: 0 }),
+    );
     expect(r.ok).toBe(false);
     expect(s.getSnapshot().canUndo).toBe(false);
   });
@@ -183,7 +195,7 @@ describe('drafts', () => {
 
     const s2 = session();
     const draft = findDraft(drafts);
-    expect(draft?.meta.name).toBe('Unsaved work');
+    expect(draft?.scenario.meta.name).toBe('Unsaved work');
     restoreDraft(s2, draft!);
     expect(s2.getSnapshot().dirty).toBe(true);
 

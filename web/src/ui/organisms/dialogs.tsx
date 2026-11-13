@@ -168,6 +168,133 @@ export function NewScenarioDialog({ mode, initial, onSubmit, onCancel }: BoardSi
   );
 }
 
+/** A dialog shown while a request runs, e.g. opening a published scenario. */
+export function BusyDialog({
+  title,
+  slow,
+  onCancel,
+}: {
+  title: string;
+  slow: boolean;
+  onCancel(): void;
+}) {
+  return (
+    <DialogShell
+      title={title}
+      onClose={onCancel}
+      actions={<Button onClick={onCancel}>Cancel</Button>}
+    >
+      <p role="status">
+        {slow
+          ? 'Waking up the server. Free hosting can take up to a minute after a quiet spell…'
+          : 'Loading…'}
+      </p>
+    </DialogShell>
+  );
+}
+
+export type PublishPhase =
+  | { kind: 'confirm' }
+  | { kind: 'working'; slow: boolean }
+  | { kind: 'done'; shortLink: string; editLink: string | null; copied: boolean };
+
+export interface PublishDialogProps {
+  mode: 'publish' | 'update';
+  name: string;
+  phase: PublishPhase;
+  onConfirm(): void;
+  onClose(): void;
+}
+
+const linkField = (label: string, value: string) => (
+  <FieldRow label={label}>
+    <TextInput
+      readOnly
+      aria-label={label}
+      value={value}
+      className="font-mono text-xs"
+      onFocus={(e) => e.currentTarget.select()}
+    />
+  </FieldRow>
+);
+
+/** Publish (first time, with a visibility note) or Update, then show the short link. */
+export function PublishDialog({ mode, name, phase, onConfirm, onClose }: PublishDialogProps) {
+  const title =
+    phase.kind === 'done'
+      ? mode === 'publish'
+        ? 'Published'
+        : 'Updated'
+      : mode === 'publish'
+        ? 'Publish scenario'
+        : 'Updating…';
+
+  const actions =
+    phase.kind === 'confirm' ? (
+      <>
+        <Button onClick={onClose}>Cancel</Button>
+        <Button variant="primary" icon="upload" onClick={onConfirm}>
+          Publish
+        </Button>
+      </>
+    ) : phase.kind === 'working' ? (
+      <Button variant="primary" disabled>
+        {mode === 'publish' ? 'Publishing…' : 'Updating…'}
+      </Button>
+    ) : (
+      <Button variant="primary" onClick={onClose}>
+        Done
+      </Button>
+    );
+
+  return (
+    <DialogShell title={title} onClose={onClose} actions={actions}>
+      {phase.kind === 'confirm' ? (
+        <>
+          <p>
+            Publish <strong>{name}</strong> and get a short link you can keep updating.
+          </p>
+          <Hint as="p" className="mb-0">
+            Anyone with the link can see this scenario, including the author name. Please publish
+            your own scenarios; refer to official ones by name rather than copying them.
+          </Hint>
+        </>
+      ) : null}
+
+      {phase.kind === 'working' ? (
+        <p role="status">
+          {phase.slow
+            ? 'Waking up the server. Free hosting can take up to a minute after a quiet spell…'
+            : mode === 'publish'
+              ? 'Publishing…'
+              : 'Saving the new version…'}
+        </p>
+      ) : null}
+
+      {phase.kind === 'done' ? (
+        <>
+          <p className="mb-3">
+            {phase.copied ? 'Short link copied. ' : ''}
+            {mode === 'publish'
+              ? 'Share this link; it will always show the latest version.'
+              : 'Everyone with the link now sees this version.'}
+          </p>
+          {linkField('Short link', phase.shortLink)}
+          {phase.editLink ? (
+            <>
+              {linkField('Private edit link', phase.editLink)}
+              <Hint as="p" className="mt-0 mb-0 text-warning-text">
+                Keep the edit link private: it lets anyone update this scenario. This browser
+                remembers it; save it somewhere to edit from another device.
+              </Hint>
+            </>
+          ) : null}
+        </>
+      ) : null}
+    </DialogShell>
+  );
+}
+
 export function ErrorList({ intro, errors }: { intro: string; errors: readonly string[] }) {
   return (
     <>
@@ -189,11 +316,19 @@ export interface ShareLinkDialogProps {
   /** Whether the link already went to the clipboard. */
   copied: boolean;
   long: boolean;
+  /** Self-contained share link, or a short link to a published scenario. */
+  storedIn?: 'link' | 'server';
   onClose(): void;
 }
 
 /** Shows a share link: confirms the copy, or offers it for manual copying. */
-export function ShareLinkDialog({ link, copied, long, onClose }: ShareLinkDialogProps) {
+export function ShareLinkDialog({
+  link,
+  copied,
+  long,
+  storedIn = 'link',
+  onClose,
+}: ShareLinkDialogProps) {
   return (
     <DialogShell
       title={copied ? 'Link copied' : 'Copy this link'}
@@ -217,7 +352,9 @@ export function ShareLinkDialog({ link, copied, long, onClose }: ShareLinkDialog
         onFocus={(e) => e.currentTarget.select()}
       />
       <Hint as="p" className="mb-0">
-        The scenario is stored in the link itself; nothing is uploaded.
+        {storedIn === 'link'
+          ? 'The scenario is stored in the link itself; nothing is uploaded.'
+          : 'This link always shows the latest published version.'}
       </Hint>
       {long ? (
         <Hint as="p" className="mb-0 text-warning-text">
