@@ -26,3 +26,10 @@ node_modules/
 dist/
 coverage/
 *.tsbuildinfo
+
+# Neon CLI (local only): project link, config-as-code and its root npm install.
+# Connection strings live in .env.local (ignored above).
+.neon
+/neon.ts
+/package.json
+/package-lock.json

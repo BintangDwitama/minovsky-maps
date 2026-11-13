@@ -2,9 +2,12 @@
 //
 // Configuration (environment):
 //
-//	PORT          listen port (default 8080; Render sets it)
+//	PORT          listen port (default 8080; Vercel sets it)
 //	DATABASE_URL  Postgres connection string (Neon). If empty, an in-memory store is used —
 //	              fine for local development, never for production (data is lost on restart).
+//
+// Locally, unset variables are also read from `.env.local` in the repo root (written by
+// `neon init` / `neon checkout`; points at the Neon dev branch). Real environment values win.
 package main
 
 import (
@@ -17,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BintangDwitama/minovsky-maps/server/internal/devenv"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/httpapi"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/publishing"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/scenario"
@@ -41,6 +45,15 @@ func main() {
 func run(log *slog.Logger) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	// local development: pick up DATABASE_URL etc. from the Neon CLI's .env.local (never overrides)
+	if wd, err := os.Getwd(); err == nil {
+		if file, names, err := devenv.Load(wd); err != nil {
+			log.Warn("could not read local env file", "file", file, "err", err)
+		} else if file != "" {
+			log.Info("loaded local env file", "file", file, "vars", names)
+		}
+	}
 
 	validator, err := scenario.NewValidator()
 	if err != nil {

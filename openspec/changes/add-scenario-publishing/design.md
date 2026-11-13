@@ -15,11 +15,11 @@ Constraints: hosting must be free and need no payment card; the backend is Go (h
 ### D1. Topology (free, no card)
 ```
 browser ─▶ Cloudflare Pages ─┬─ static SPA (/, /s/:id via SPA fallback)
-                             └─ Pages Function /api/* ──proxy──▶ Render (Go) ──▶ Neon (Postgres)
+                             └─ Pages Function /api/* ──proxy──▶ Vercel (Go) ──▶ Neon (Postgres)
 ```
-- **Render free web service** (native Go runtime, root `server/`, build `go build -o bin/api ./cmd/api`, start `./bin/api`). Sleeps after 15 min idle; wakes on request (up to ~1 min).
+- **Vercel Hobby (free, no card)** with the Go framework preset (beta): root `server/`, `server/vercel.json` sets `framework: go` and region `sin1` (next to the Neon database in `aws-ap-southeast-1`). Vercel builds `cmd/api` and runs our ordinary `net/http` server on `$PORT`; instances scale to zero and start in well under a second. *Changed during apply:* Render was the original pick but now asks for a payment card for web services.
 - **Neon free** Postgres via the pooled connection string (`DATABASE_URL`); scales to zero after 5 min (sub-second resume). A `dev` branch is used for local work.
-- **Pages Function** `web/functions/api/[[path]].ts` forwards method, path, query, body and `Authorization` to `env.API_ORIGIN`, adds `X-Forwarded-For` from `CF-Connecting-IP`, and returns the response unchanged. Same origin ⇒ no CORS, preview deploys work, the Render URL stays configuration.
+- **Pages Function** `web/functions/api/[[path]].ts` forwards method, path, query, body and `Authorization` to `env.API_ORIGIN`, adds `X-Forwarded-For` from `CF-Connecting-IP`, and returns the response unchanged. Same origin ⇒ no CORS, preview deploys work, the API host stays configuration.
 - *Alternatives:* direct CORS calls (needs an allowlist incl. preview subdomains; Slice 3 cookies would need cross-site settings); Cloud Run/Fly.io (need a card); Workers + D1 (not Go).
 
 ### D2. Server structure (`server/`)
@@ -39,7 +39,7 @@ server/
 - *Alternatives:* chi/echo, sqlc, goose — reasonable later; not needed for four endpoints.
 
 ### D3. Shared schema as a Go module
-`go:embed` cannot reach files outside the module, so `schema/` gets `go.mod` (`module github.com/BintangDwitama/minovsky-maps/schema`) and `schema.go` exposing `//go:embed scenario.v1.schema.json` as `ScenarioV1 []byte` plus an `Examples` `embed.FS` over `examples/`. `server/go.mod` requires it with `replace github.com/BintangDwitama/minovsky-maps/schema => ../schema`. Render clones the whole repo, so the relative replace builds there. The JSON Schema file itself does not change.
+`go:embed` cannot reach files outside the module, so `schema/` gets `go.mod` (`module github.com/BintangDwitama/minovsky-maps/schema`) and `schema.go` exposing `//go:embed scenario.v1.schema.json` as `ScenarioV1 []byte` plus an `Examples` `embed.FS` over `examples/`. `server/go.mod` requires it with `replace github.com/BintangDwitama/minovsky-maps/schema => ../schema`. Vercel builds with "Include files outside the root directory" enabled, so the relative replace resolves. The JSON Schema file itself does not change.
 
 ### D4. Validation parity
 - JSON Schema: `github.com/santhosh-tekuri/jsonschema/v6` (draft 2020-12), compiled once at startup.
@@ -88,7 +88,7 @@ All errors are JSON `{ "errors": ["…"] }`. Body limit 64 KB via `http.MaxBytes
 
 ## Risks / Trade-offs
 
-- [Render cold start up to ~1 min] → explicit waking state on the sheet and a "Publishing… the server may be waking up" state in the dialog; `/api/health` ping when the editor loads so the server is often awake by the time the user publishes.
+- [Cold starts on free hosting (short on Vercel, up to ~1 min on hosts that sleep)] → explicit waking state on the sheet and a "Publishing… the server may be waking up" state in the dialog; `/api/health` ping when the editor loads so the server is often awake by the time the user publishes.
 - [Two implementations of integrity rules drift] → shared conformance suite in CI; same rule codes on both sides.
 - [Lost edit token = scenario can't be edited] → shown once with clear wording; remembered in the browser; Slice 3 adds accounts and claiming.
 - [Spam / abuse without a bot challenge] → size cap, per-IP rate limit, takedown flag; Turnstile is a ready follow-up.
@@ -98,8 +98,8 @@ All errors are JSON `{ "errors": ["…"] }`. Body limit 64 KB via `http.MaxBytes
 
 ## Migration Plan
 
-1. Create Neon project (+ `dev` branch) and Render service (owner, one-time); set `DATABASE_URL` on Render, `API_ORIGIN` on Cloudflare Pages.
-2. Merge: Render deploys `server/` (migrations run at startup); Pages deploys web + function.
+1. Create Neon project (+ `dev` branch) and Vercel project (owner, one-time); set `DATABASE_URL` on Vercel, `API_ORIGIN` on Cloudflare Pages.
+2. Merge: Vercel deploys `server/` (migrations run at startup); Pages deploys web + function.
 3. Rollback: revert; published data stays in Neon and is unaffected. Slice 1 links never depend on the API.
 
 ## Open Questions

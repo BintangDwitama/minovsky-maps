@@ -33,7 +33,18 @@ go run ./cmd/api   # :8080; without DATABASE_URL it uses an in-memory store
 go test ./...      # unit tests + the shared conformance suite
 ```
 
-To run the API against a real database, create a `dev` branch in your Neon project and set `DATABASE_URL` to its connection string. Postgres integration tests run only when `TEST_DATABASE_URL` is set; point it at a throwaway branch, never production.
+To run the API against a real database, use the Neon CLI from the repo root:
+
+```sh
+npm i -g neon@latest
+neon login
+neon init --org-id <org> --project-id <project>   # links the repo (.neon), writes .env.local
+neon checkout dev --create                        # a dev branch; .env.local now points at it
+```
+
+The server reads unset variables from `.env.local` automatically when run locally, so `go run ./cmd/api` uses the dev branch. `.env.local`, `.neon` and Neon's root `package.json`/`neon.ts` are git-ignored. The dev branch expires after 7 days (see `neon.ts`); run `neon checkout dev --create` again to get a fresh one.
+
+Postgres integration tests run only when `TEST_DATABASE_URL` is set; point it at the dev branch, never production.
 
 CI (`.github/workflows/ci.yml`) runs all web and server checks on every push.
 
@@ -54,33 +65,30 @@ Links are permanent. The `1.` prefix is the link format version; never change ho
 ## Deploying (all free, no payment card)
 
 ```
-browser ─▶ Cloudflare Pages (web/dist + Function /api/*) ─▶ Render (Go API) ─▶ Neon (Postgres)
+browser ─▶ Cloudflare Pages (web/dist + Function /api/*) ─▶ Vercel (Go API, sin1) ─▶ Neon (Postgres, Singapore)
 ```
 
 ### 1. Database: Neon
 
-1. Sign up at **neon.com** (free plan) and create a project, e.g. `minovsky-maps`, in a region close to Render's (e.g. both in the US East or both in Frankfurt).
-2. Copy the **pooled** connection string (Dashboard → Connect → "Pooled connection"). It looks like `postgresql://…-pooler…/neondb?sslmode=require`.
-3. Optional: create a `dev` branch for local work.
+1. Sign up at **neon.com** (free plan) and create a project. This project's database is in `aws-ap-southeast-1` (Singapore), so the API runs in Vercel's `sin1` region next to it (`server/vercel.json`).
+2. Copy the **production** branch's **pooled** connection string (Dashboard → Connect → "Pooled connection"). It looks like `postgresql://…-pooler…/neondb?sslmode=require`. Don't use `.env.local`; locally that points at the `dev` branch.
 
 The API creates its tables on startup.
 
-### 2. API: Render
+### 2. API: Vercel (Hobby plan, free, no card)
 
-1. Sign up at **render.com** with GitHub (free; no card), then **New → Web Service** and pick this repository.
+1. Sign up at **vercel.com** with GitHub, then **Add New → Project** and import this repository.
 2. Settings:
    | Setting | Value |
    |---|---|
-   | Language | Go |
-   | Root directory | `server` |
-   | Build command | `go build -o bin/api ./cmd/api` |
-   | Start command | `./bin/api` |
-   | Instance type | Free |
-   | Health check path | `/api/health` |
-3. Environment variable: `DATABASE_URL` = the Neon connection string.
-4. Deploy, then open `https://<service>.onrender.com/api/health`; it should answer `{"status":"ok"}`.
+   | Root Directory | `server` |
+   | Include files outside the root directory in the Build Step | **on** (the server embeds `../schema`) |
+   | Framework Preset | Go (from `server/vercel.json`) |
+   | Build / Output settings | leave default (builds `cmd/api`, which listens on `$PORT`) |
+3. Environment variable: `DATABASE_URL` = the Neon production pooled connection string.
+4. Deploy, then open `https://<project>.vercel.app/api/health`; it should answer `{"status":"ok"}`.
 
-Free Render services sleep after 15 minutes without traffic and take up to about a minute to wake. The app shows a "waking up" message meanwhile.
+Vercel's Go runtime is in beta; it runs our ordinary `net/http` server, so moving to another host later needs no code changes.
 
 ### 3. Web: Cloudflare Pages
 
@@ -93,7 +101,7 @@ Free Render services sleep after 15 minutes without traffic and take up to about
    | Build command | `npm ci && npm run build` |
    | Build output directory | `dist` |
    | Production branch | `main` |
-3. Environment variables: `NODE_VERSION` = `22`, and **`API_ORIGIN`** = your Render address, e.g. `https://minovsky-maps-api.onrender.com` (no trailing slash).
+3. Environment variables: `NODE_VERSION` = `22`, and **`API_ORIGIN`** = your Vercel API address, e.g. `https://minovsky-maps-api.vercel.app` (no trailing slash).
 4. Name the project `minovsky-maps` to get `https://minovsky-maps.pages.dev`.
 
 Every push to `main` deploys; other branches get their own preview address, and publishing works there too.

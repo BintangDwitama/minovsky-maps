@@ -37,7 +37,7 @@
 ## 7. CI and deployment
 
 - [x] 7.1 `.github/workflows/ci.yml`: web job (lint, typecheck, test, build) and server job (vet, test, build)
-- [x] 7.2 README: running the server locally (Neon dev branch), Render and Neon setup (free, no card), `API_ORIGIN` on Pages, takedown via SQL
+- [x] 7.2 README: running the server locally (Neon dev branch), Vercel and Neon setup (free, no card), `API_ORIGIN` on Pages, takedown via SQL
 
 ## 8. Verification
 
@@ -46,4 +46,5 @@
 - [x] 8.3 Cold-start check: with the API stopped then started late, the sheet shows the waking state and then the scenario
 - [x] 8.4 Re-run the Phase 1 and share-link walkthroughs (no regressions)
 - [ ] 8.5 CI green on GitHub after pushing (needs a push)
-- [ ] 8.6 Postgres integration tests against a Neon `dev` branch (`TEST_DATABASE_URL`), then a production smoke test on Render + Pages (needs the owner's Neon/Render accounts)
+- [x] 8.6 Postgres integration tests against the Neon `dev` branch (`TEST_DATABASE_URL`) and a local publish/read through the real database (server loads `.env.local`)
+- [ ] 8.7 Production smoke test on Vercel + Pages (needs the owner's Vercel project and `API_ORIGIN` on Pages); `server/vercel.json` added for the Go preset and `sin1` region

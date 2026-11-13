@@ -10,7 +10,7 @@ Share links (Slice 1) carry the whole scenario, so every edit means a new ~800-c
 - **Editor**: Publish (first time) / Update (when the open document is a scenario this browser can edit); publish dialog shows the share link, the private edit link, and a note that published scenarios are visible to anyone with the link.
 - **Abuse basics**: 64 KB request cap, per-IP rate limits, random ids, takedown flag.
 - **Shared contract**: `schema/` becomes a tiny Go module embedding `scenario.v1.schema.json`; `schema/examples/` becomes a conformance suite run by both the TypeScript and Go test suites.
-- **Hosting (free, no card)**: Go API on Render (free web service; sleeps after 15 minutes idle), Postgres on Neon (free), reached through a Cloudflare Pages Function proxy at `/api/*` so the app has a single origin. The sheet shows a "waking up" state while the API starts.
+- **Hosting (free, no card)**: Go API on Vercel (Hobby plan, Go framework preset; no card), Postgres on Neon (free), reached through a Cloudflare Pages Function proxy at `/api/*` so the app has a single origin. The sheet shows a "waking up" state while the API starts.
 - **CI**: GitHub Actions runs web and server checks on every push.
 
 Sides touched: **web, server, schema** (schema gains a Go embed file; the JSON Schema itself is unchanged).
@@ -36,5 +36,5 @@ Sides touched: **web, server, schema** (schema gains a Go embed file; the JSON S
 
 - **New:** `server/` (Go module), `schema/go.mod` + `schema/schema.go`, `web/functions/api/[[path]].ts` (Pages proxy), `.github/workflows/ci.yml`.
 - **Web:** new ports and HTTP adapter for publishing, local store for edit tokens, router path `/s/<id>`, toolbar Publish/Update, publish dialog, sheet loading/waking/not-found states.
-- **Accounts/services (owner, one-time, free, no card):** Render web service, Neon project, `API_ORIGIN` setting on Cloudflare Pages.
-- **Risk:** Render cold starts (up to ~1 minute after idle) — mitigated by an explicit waking state; integrity rules exist in two languages — mitigated by the shared conformance suite.
+- **Accounts/services (owner, one-time, free, no card):** Vercel project, Neon project, `API_ORIGIN` setting on Cloudflare Pages.
+- **Risk:** cold starts on free hosting — mitigated by an explicit waking state; integrity rules exist in two languages — mitigated by the shared conformance suite.
