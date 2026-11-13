@@ -73,6 +73,8 @@ export function Menu({ label, items, variant = 'frame', footer }: MenuProps) {
               role="menuitem"
               className="flex items-center gap-2.5 bg-panel px-3 py-2 text-left focus-visible:shadow-[inset_0_0_0_2px_var(--accent)] focus-visible:outline-none enabled:hover:bg-plate-hover coarse:min-h-11"
               onClick={() => {
+                // focus the trigger first: a dialog opened by the action returns focus there
+                root.current?.querySelector<HTMLButtonElement>('[aria-haspopup]')?.focus();
                 setOpen(false);
                 it.onSelect();
               }}

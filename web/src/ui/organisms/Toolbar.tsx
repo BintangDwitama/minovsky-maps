@@ -1,5 +1,6 @@
 import { IconButton, Button } from '../atoms/Button';
-import { useEditor, useServices } from '../hooks/editorContext';
+import { useEditor } from '../hooks/editorContext';
+import { useHistory } from '../hooks/useHistory';
 import { BrandMark } from '../atoms/BrandMark';
 import { Brand } from '../molecules/Brand';
 import { Menu } from '../molecules/Menu';
@@ -30,7 +31,7 @@ export function Toolbar({
   onMyScenarios,
   compact,
 }: ToolbarProps) {
-  const { session } = useServices();
+  const { undo, redo } = useHistory();
   const { scenario, canUndo, canRedo, dirty, undoLabel, redoLabel } = useEditor();
 
   const history = (
@@ -40,14 +41,14 @@ export function Toolbar({
         icon="undo"
         label={undoLabel ? `Undo ${undoLabel} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}
         disabled={!canUndo}
-        onClick={() => session.undo()}
+        onClick={undo}
       />
       <IconButton
         variant="frame"
         icon="redo"
         label={redoLabel ? `Redo ${redoLabel} (Ctrl+Y)` : 'Redo (Ctrl+Y)'}
         disabled={!canRedo}
-        onClick={() => session.redo()}
+        onClick={redo}
       />
     </>
   );

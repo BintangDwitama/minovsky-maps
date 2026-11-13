@@ -20,6 +20,13 @@ export type Deployment = Rules['deployment'];
 
 export const TERRAIN_TAGS: readonly TerrainTag[] = ['water', 'debris', 'impassable', 'minovsky'];
 
+export const TERRAIN_LABELS: Record<TerrainTag, string> = {
+  water: 'Water',
+  debris: 'Debris field',
+  impassable: 'Impassable',
+  minovsky: 'Minovsky particles',
+};
+
 export const MIN_BOARD_SIZE = 1;
 export const MAX_BOARD_SIZE = 40;
 export const DEFAULT_BOARD_SIZE = 15;

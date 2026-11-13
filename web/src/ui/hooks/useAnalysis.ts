@@ -14,27 +14,32 @@ export interface AnalysisResult {
   readonly autoEngaged: boolean;
 }
 
+/** Analysis for the current probe (pure). */
+export const buildAnalysisResult = (
+  scenario: Scenario,
+  a: AnalysisSettings,
+): AnalysisResult | null => {
+  if (!a.probe) return null;
+  const index = buildAnalysisIndex(scenario);
+  if (!index.onBoard(a.probe)) return null;
+  const autoEngaged = isEngaged(index, a.probe, a.side);
+  return {
+    index,
+    autoEngaged,
+    visible: a.mode === 'reach' ? null : lineOfSight(index, scenario.board.hexes, a.probe, a.side),
+    reach:
+      a.mode === 'los'
+        ? null
+        : reach(index, a.probe, {
+            side: a.side,
+            move: a.move,
+            speed: a.speed,
+            engaged: autoEngaged || a.engaged,
+            hover: a.hover,
+          }),
+  };
+};
+
 /** Derived analysis for the current probe; recomputed only when the scenario or settings change. */
 export const useAnalysis = (scenario: Scenario, a: AnalysisSettings): AnalysisResult | null =>
-  useMemo(() => {
-    if (!a.probe) return null;
-    const index = buildAnalysisIndex(scenario);
-    if (!index.onBoard(a.probe)) return null;
-    const autoEngaged = isEngaged(index, a.probe, a.side);
-    return {
-      index,
-      autoEngaged,
-      visible:
-        a.mode === 'reach' ? null : lineOfSight(index, scenario.board.hexes, a.probe, a.side),
-      reach:
-        a.mode === 'los'
-          ? null
-          : reach(index, a.probe, {
-              side: a.side,
-              move: a.move,
-              speed: a.speed,
-              engaged: autoEngaged || a.engaged,
-              hover: a.hover,
-            }),
-    };
-  }, [scenario, a]);
+  useMemo(() => buildAnalysisResult(scenario, a), [scenario, a]);

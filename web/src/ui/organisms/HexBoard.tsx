@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type PointerEvent } from 'react';
 import type { PointerKind } from '../../application/uiState';
 import { type Axial, pixelToAxial } from '../../domain/hex';
 import { rectangleSize } from '../../domain/scenario';
 import { buildIndex, isOnBoard } from '../../domain/scenarioIndex';
 import { IconButton } from '../atoms/Button';
 import { useEditor, useServices, useUi } from '../hooks/editorContext';
+import { useAnnouncer } from '../hooks/useAnnouncer';
+import { useBoardKeyboard } from '../hooks/useBoardKeyboard';
 import { useBoardViewport } from '../hooks/useBoardViewport';
 import { createTools, type ToolContext } from '../tools/tools';
 import { BOARD } from '../theme';
@@ -37,7 +39,7 @@ export function HexBoard({ requestLabel }: { requestLabel: ToolContext['requestL
   const services = useServices();
   const { session, ui, ids } = services;
   const { scenario } = useEditor();
-  const { tool: toolId, selectedId, highlight, hover, zoom, pan, analysis } = useUi();
+  const { tool: toolId, selectedId, highlight, hover, zoom, pan, analysis, cursor } = useUi();
   const tools = useMemo(createTools, []);
   const tool = tools[toolId];
   const pointerRef = useRef<PointerKind>('mouse');
@@ -67,6 +69,19 @@ export function HexBoard({ requestLabel }: { requestLabel: ToolContext['requestL
     bounds,
     getView: () => ui.current,
     setView: (v) => ui.patch({ zoom: v.zoom, pan: v.pan }),
+  });
+
+  const helpId = useId();
+  const announce = useAnnouncer();
+  const kb = useBoardKeyboard({
+    tool,
+    toolId,
+    ctx,
+    pointerRef,
+    announce,
+    svgRef,
+    hexSize: SIZE,
+    toView: vp.toView,
   });
 
   useEffect(() => {
@@ -233,14 +248,28 @@ export function HexBoard({ requestLabel }: { requestLabel: ToolContext['requestL
 
   return (
     <>
+      <p id={helpId} className="sr-only">
+        Arrow keys move the cursor by column and row. Enter applies the current tool to the cursor
+        hex; Shift with the arrow keys applies it along a line. With the Select tool, Enter picks up
+        a component, the arrow keys carry it, Enter drops it and Escape puts it back. Letter keys
+        switch tools: V select, T paint terrain, E erase, U raise, D lower, L set level, P place, A
+        sight and reach.
+      </p>
       <svg
         ref={svgRef}
-        className="block size-full touch-none select-none"
+        className="block size-full touch-none select-none focus-visible:outline-none"
         viewBox={`${bounds.minX} ${bounds.minY} ${bounds.width} ${bounds.height}`}
         preserveAspectRatio="xMidYMid meet"
         style={{ cursor: panning ? 'grab' : tool.cursor }}
+        tabIndex={0}
         role="application"
+        aria-roledescription="hex board"
         aria-label="Scenario board"
+        aria-describedby={helpId}
+        onFocus={kb.onFocus}
+        onBlur={kb.onBlur}
+        onKeyDown={kb.onKeyDown}
+        onKeyUp={kb.onKeyUp}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={(e) => endStroke(e, false)}
@@ -256,6 +285,7 @@ export function HexBoard({ requestLabel }: { requestLabel: ToolContext['requestL
               selectedId={selectedId}
               highlight={highlight}
               hover={hover}
+              cursor={kb.focused ? cursor : null}
             />
             {toolId === 'analyse' ? (
               <AnalysisOverlay scenario={scenario} analysis={analysis} hover={hover} size={SIZE} />

@@ -39,6 +39,9 @@ import { RandomIdGenerator } from '../../infrastructure/randomIds';
 import { SvgPngExporter } from '../../infrastructure/svgPngExporter';
 import { renderBoardSvg } from '../export/renderBoardSvg';
 import { EditorProvider, type EditorServices, useEditor, useUi } from '../hooks/editorContext';
+import { kindDef } from '../../domain/components/registry';
+import { AnnouncerProvider, useAnnouncer } from '../hooks/useAnnouncer';
+import { useHistory } from '../hooks/useHistory';
 import { COMPACT_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
 import { SelectionBar } from '../organisms/SelectionBar';
 import { LINK_FAILURE } from '../linkMessages';
@@ -64,6 +67,7 @@ import {
 import { GoalsEditor } from '../organisms/GoalsEditor';
 import { HexBoard } from '../organisms/HexBoard';
 import { AnalysisPanel } from '../organisms/AnalysisPanel';
+import { EditorBoardInWords } from '../organisms/BoardInWords';
 import { ScenarioInspector } from '../organisms/ScenarioInspector';
 import { ScenarioSettingsPanel } from '../organisms/ScenarioSettingsPanel';
 import { StatusBar } from '../organisms/StatusBar';
@@ -104,7 +108,9 @@ export function EditorPage({ importLink = null, publishedId = null }: EditorPage
   const [services] = useState(buildServices);
   return (
     <EditorProvider services={services}>
-      <Editor services={services} importLink={importLink} publishedId={publishedId} />
+      <AnnouncerProvider>
+        <Editor services={services} importLink={importLink} publishedId={publishedId} />
+      </AnnouncerProvider>
     </EditorProvider>
   );
 }
@@ -138,6 +144,8 @@ function Editor({
   const { session, ui, reader, writer, drafts, exporter, compressor, clipboard } = services;
   const { publisher, publications } = services;
   const { dirty, publication } = useEditor();
+  const history = useHistory();
+  const announce = useAnnouncer();
   const uiState = useUi();
   const compact = useMediaQuery(COMPACT_QUERY);
   const publishMode =
@@ -397,16 +405,18 @@ function Editor({
       if (isTyping(e.target)) return;
       if (mod && key === 'z' && !e.shiftKey) {
         e.preventDefault();
-        session.undo();
+        history.undo();
       } else if (mod && (key === 'y' || (key === 'z' && e.shiftKey))) {
         e.preventDefault();
-        session.redo();
+        history.redo();
       } else if (!mod && (e.key === 'Delete' || e.key === 'Backspace')) {
         const id = ui.current.selectedId;
         if (id) {
           e.preventDefault();
+          const c = session.scenario.components.find((x) => x.id === id);
           session.execute(removeComponentCmd(id));
           ui.select(null);
+          if (c) announce(`Removed ${kindDef(c.kind).label.toLowerCase()}`);
         }
       } else if (!mod && key === 'r') {
         const id = ui.current.selectedId;
@@ -414,18 +424,22 @@ function Editor({
         if (c?.kind === 'carrier') {
           const r = session.execute(rotateCarrierCmd(c.id, e.shiftKey ? -1 : 1));
           if (!r.ok) ui.flash(r.reason);
+          else announce('Rotated carrier');
         }
       } else if (e.key === 'Escape') {
         ui.patch({ selectedId: null, highlight: [] });
         ui.setTool('select'); // also clears the analysis probe
       } else if (!mod && !e.altKey) {
         const t = TOOL_SHORTCUTS[key];
-        if (t) ui.setTool(t);
+        if (t) {
+          ui.setTool(t);
+          announce(toolName(ui.current));
+        }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [session, ui, onSave]);
+  }, [session, ui, onSave, history, announce]);
 
   return (
     <EditorLayout
@@ -462,6 +476,7 @@ function Editor({
           <PillarCount />
           <ScenarioSettingsPanel onResize={onResizeRequest} />
           <GoalsEditor />
+          <EditorBoardInWords />
         </>
       }
       status={<StatusBar />}

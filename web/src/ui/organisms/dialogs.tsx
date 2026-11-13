@@ -18,6 +18,9 @@ export interface DialogShellProps {
 }
 
 /** Modal frame shared by all dialogs: navy title band, body, actions; Escape and backdrop close it. */
+const FOCUSABLE =
+  'button, [href], input, select, textarea, summary, [tabindex]:not([tabindex="-1"])';
+
 export function DialogShell({ title, children, actions, onClose }: DialogShellProps) {
   const titleId = useId();
   const ref = useRef<HTMLDivElement>(null);
@@ -26,7 +29,29 @@ export function DialogShell({ title, children, actions, onClose }: DialogShellPr
     ref.current
       ?.querySelector<HTMLElement>('input, button[data-variant="primary"], button')
       ?.focus();
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key !== 'Tab' || !ref.current) return;
+      // keep Tab inside the dialog: wrap from the last control to the first and back
+      const els = [...ref.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+        (el) => !el.hasAttribute('disabled') && el.getClientRects().length > 0,
+      );
+      if (els.length === 0) return;
+      const first = els[0]!;
+      const last = els.at(-1)!;
+      const active = document.activeElement;
+      const inside = !!active && ref.current.contains(active);
+      if (e.shiftKey && (active === first || !inside)) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !inside)) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);

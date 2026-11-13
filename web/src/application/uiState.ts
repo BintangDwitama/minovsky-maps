@@ -54,10 +54,12 @@ export interface UiState {
   readonly analysis: AnalysisSettings;
   /** Input used last on the board; picks touch or mouse wording for hints. */
   readonly lastPointer: PointerKind;
+  /** Keyboard cursor on the board (UI only, never saved). */
+  readonly cursor: Axial | null;
 }
 
-/** Pen counts as mouse: it can hover. */
-export type PointerKind = 'mouse' | 'touch';
+/** Pen counts as mouse: it can hover. The keyboard behaves like a mouse for tools. */
+export type PointerKind = 'mouse' | 'touch' | 'keyboard';
 
 export const initialUiState: UiState = {
   tool: 'select',
@@ -79,6 +81,7 @@ export const initialUiState: UiState = {
   pan: { x: 0, y: 0 },
   analysis: initialAnalysis,
   lastPointer: 'mouse',
+  cursor: null,
 };
 
 export class UiStore extends Store<UiState> {

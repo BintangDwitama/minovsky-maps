@@ -34,12 +34,8 @@ export const TERRAIN_COLORS: Record<TerrainTag, string> = {
   minovsky: '#cc79a7',
 };
 
-export const TERRAIN_LABELS: Record<TerrainTag, string> = {
-  water: 'Water',
-  debris: 'Debris field',
-  impassable: 'Impassable',
-  minovsky: 'Minovsky particles',
-};
+/** Terrain names are words, not styling: they live in the domain (board descriptions use them). */
+export { TERRAIN_LABELS } from '../domain/scenario';
 
 export const elevationFill = (level: number): string =>
   BOARD.elevation[Math.min(level, BOARD.elevation.length - 1)]!;

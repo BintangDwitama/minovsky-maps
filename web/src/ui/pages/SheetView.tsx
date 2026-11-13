@@ -7,6 +7,7 @@ import { cn } from '../cn';
 import { ConfirmDialog, ShareLinkDialog } from '../organisms/dialogs';
 import { GoalsList } from '../organisms/GoalsList';
 import { RulesSummary } from '../organisms/RulesSummary';
+import { BoardInWords } from '../organisms/BoardInWords';
 import { SetupChecklist } from '../organisms/SetupChecklist';
 import { SheetBoard } from '../organisms/SheetBoard';
 import { SheetHeader } from '../organisms/SheetHeader';
@@ -129,6 +130,7 @@ export function SheetView({
           <Section title="Setup checklist" flow>
             <SetupChecklist scenario={s} />
           </Section>
+          <BoardInWords scenario={s} className="mb-4 bg-panel p-4 chamfer [&>summary]:text-head" />
         </>
       }
       overlay={

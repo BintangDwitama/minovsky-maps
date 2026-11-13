@@ -42,6 +42,8 @@ export interface BoardViewProps {
   selectedId?: string | null;
   highlight?: readonly Axial[];
   hover?: Axial | null;
+  /** Keyboard cursor (drawn only while the board has keyboard focus). */
+  cursor?: Axial | null;
 }
 
 const LABEL_KINDS = new Set(['token', 'structure', 'objective']);
@@ -50,7 +52,7 @@ const LABEL_KINDS = new Set(['token', 'structure', 'objective']);
  * Pure, props-only rendering of a scenario as SVG content (no <svg> wrapper).
  * Used by the interactive HexBoard and the PNG export (overlay props omitted there).
  */
-export const BoardView = memo(function BoardView({ scenario, size, selectedId, highlight, hover }: BoardViewProps) {
+export const BoardView = memo(function BoardView({ scenario, size, selectedId, highlight, hover, cursor }: BoardViewProps) {
   const idx = buildIndex(scenario);
   const center = (h: Axial): Point => axialToPixel(h, size);
 
@@ -148,6 +150,13 @@ export const BoardView = memo(function BoardView({ scenario, size, selectedId, h
               <HexPolygon key={`s-${hexKey(h)}`} center={center(h)} size={size - 1.5} fill="none" stroke={BOARD.select} strokeWidth={3} />
             ))
           : null}
+        {cursor && idx.hexes.has(hexKey(cursor)) ? (
+          // two-tone ring: visible on light ground and dark elevation alike, no colour needed
+          <g data-testid="board-cursor">
+            <HexPolygon center={center(cursor)} size={size - 1} fill="none" stroke="#161d2b" strokeWidth={6} />
+            <HexPolygon center={center(cursor)} size={size - 1} fill="none" stroke={BOARD.select} strokeWidth={2.5} />
+          </g>
+        ) : null}
       </g>
     </g>
   );
