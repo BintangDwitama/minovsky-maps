@@ -37,4 +37,4 @@
 - [x] 6.2 `go test ./...`, `go vet`, gofmt and web lint, typecheck, test, check:types and build pass
 - [x] 6.3 Local end-to-end (DEV_FAKE_SIGNIN): save as Only me (stranger gets 404, report 404), switch to link (opens), switch to Everyone (appears in Browse, filters and search find it, Load more), switch back (disappears), My scenarios select, sheet banner; existing scenarios stay link
 - [x] 6.4 Phone check of Browse (cards, filters, lazy thumbnails) and of the save dialog
-- [ ] 6.5 After deploy: the same on pages.dev with the real Google sign-in
+- [x] 6.5 After deploy: the same on pages.dev with the real Google sign-in
