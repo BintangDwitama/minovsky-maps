@@ -25,8 +25,10 @@ const MaxBodyBytes = 64 << 10
 
 // Publisher is what the handlers need from the publishing service.
 type Publisher interface {
-	Publish(ctx context.Context, ownerID int64, doc []byte) (publishing.Created, error)
-	Get(ctx context.Context, id string) (publishing.Published, error)
+	Publish(ctx context.Context, ownerID int64, v publishing.Visibility, doc []byte) (publishing.Created, error)
+	Get(ctx context.Context, id string, viewer int64) (publishing.Published, error)
+	SetVisibility(ctx context.Context, id string, ownerID int64, v publishing.Visibility) error
+	Browse(ctx context.Context, q publishing.BrowseQuery) (publishing.BrowsePage, error)
 	Update(ctx context.Context, id string, c publishing.Credential, doc []byte) (time.Time, error)
 	Delete(ctx context.Context, id string, ownerID int64) error
 	Claim(ctx context.Context, ownerID int64, items []publishing.TokenClaim) ([]string, error)
@@ -66,6 +68,9 @@ type Reporter interface {
 type Options struct {
 	WritesPerMinute int
 	WriteBurst      int
+	// Browse has its own, more generous limit (reads are cheap; filters change often).
+	BrowsePerMinute int
+	BrowseBurst     int
 	Now             func() time.Time
 	Logger          *slog.Logger
 	// Bot verifies Turnstile tokens on writes and reports; nil skips the check.
@@ -85,6 +90,12 @@ func New(svc Publisher, db Pinger, opt Options) http.Handler {
 	if opt.WriteBurst == 0 {
 		opt.WriteBurst = 5
 	}
+	if opt.BrowsePerMinute == 0 {
+		opt.BrowsePerMinute = 60
+	}
+	if opt.BrowseBurst == 0 {
+		opt.BrowseBurst = 20
+	}
 	if opt.Now == nil {
 		opt.Now = time.Now
 	}
@@ -96,6 +107,7 @@ func New(svc Publisher, db Pinger, opt Options) http.Handler {
 		db:       db,
 		log:      opt.Logger,
 		writes:   newLimiter(opt.WritesPerMinute, opt.WriteBurst, opt.Now),
+		reads:    newLimiter(opt.BrowsePerMinute, opt.BrowseBurst, opt.Now),
 		bot:      opt.Bot,
 		reports:  opt.Reports,
 		accounts: opt.Accounts,
@@ -107,6 +119,8 @@ func New(svc Publisher, db Pinger, opt Options) http.Handler {
 	mux.HandleFunc("GET /api/scenarios/{id}", a.get)
 	mux.HandleFunc("PUT /api/scenarios/{id}", a.limited("write", a.update))
 	mux.HandleFunc("DELETE /api/scenarios/{id}", a.limited("write", a.deleteScenario))
+	mux.HandleFunc("PATCH /api/scenarios/{id}", a.limited("write", a.setVisibility))
+	mux.HandleFunc("GET /api/browse", a.browseLimited(a.browse))
 	mux.HandleFunc("POST /api/reports", a.limited("report", a.report))
 	mux.HandleFunc("GET /api/auth/google/start", a.limited("auth", a.loginStart))
 	mux.HandleFunc("GET /api/auth/google/callback", a.limited("auth", a.loginCallback))
@@ -128,6 +142,7 @@ type api struct {
 	db       Pinger
 	log      *slog.Logger
 	writes   *limiter
+	reads    *limiter
 	bot      BotCheck
 	reports  Reporter
 	accounts Accounts
@@ -136,6 +151,8 @@ type api struct {
 type scenarioBody struct {
 	Scenario       json.RawMessage `json:"scenario"`
 	TurnstileToken string          `json:"turnstileToken"`
+	// Visibility of a new scenario: private (default), link or public.
+	Visibility string `json:"visibility"`
 }
 
 type reportBody struct {
@@ -193,16 +210,27 @@ func (a *api) publish(w http.ResponseWriter, r *http.Request) {
 	if !ok || !a.human(w, r, body.TurnstileToken) {
 		return
 	}
-	created, err := a.svc.Publish(r.Context(), acc.ID, body.Scenario)
+	created, err := a.svc.Publish(r.Context(), acc.ID, publishing.Visibility(body.Visibility), body.Scenario)
 	if err != nil {
 		a.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]any{"id": created.ID, "updatedAt": created.UpdatedAt.UTC()})
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"id": created.ID, "visibility": created.Visibility, "updatedAt": created.UpdatedAt.UTC(),
+	})
 }
 
 func (a *api) get(w http.ResponseWriter, r *http.Request) {
-	p, err := a.svc.Get(r.Context(), r.PathValue("id"))
+	acc, signedIn, err := a.session(r)
+	if err != nil {
+		a.fail(w, err)
+		return
+	}
+	var viewer int64
+	if signedIn {
+		viewer = acc.ID
+	}
+	p, err := a.svc.Get(r.Context(), r.PathValue("id"), viewer)
 	if err != nil {
 		a.fail(w, err)
 		return
@@ -211,8 +239,9 @@ func (a *api) get(w http.ResponseWriter, r *http.Request) {
 	if p.OwnerID != 0 {
 		// the verified author; never the email or account id
 		out["owner"] = map[string]string{"displayName": p.OwnerName}
-		if acc, signedIn, err := a.session(r); err == nil && signedIn {
-			out["isOwner"] = acc.ID == p.OwnerID
+		if viewer == p.OwnerID {
+			out["isOwner"] = true
+			out["visibility"] = p.Visibility // only the owner learns (or needs) this
 		}
 	}
 	w.Header().Set("Cache-Control", "no-store") // updates must show immediately
@@ -315,6 +344,8 @@ func (a *api) fail(w http.ResponseWriter, err error) {
 		writeErrors(w, http.StatusUnprocessableEntity, inv.Messages...)
 	case errors.Is(err, publishing.ErrNotFound):
 		writeErrors(w, http.StatusNotFound, "Scenario not found.")
+	case errors.Is(err, publishing.ErrInvalidVisibility):
+		writeErrors(w, http.StatusBadRequest, "Visibility must be private, link or public.")
 	case errors.Is(err, publishing.ErrSignedOut):
 		writeCode(w, http.StatusUnauthorized, codeSignedOut, "Sign in to do this.")
 	case errors.Is(err, publishing.ErrNotOwner):
@@ -337,6 +368,19 @@ func (a *api) limited(bucket string, next http.HandlerFunc) http.HandlerFunc {
 		if !ok {
 			w.Header().Set("Retry-After", fmt.Sprint(int(math.Ceil(wait.Seconds()))))
 			writeErrors(w, http.StatusTooManyRequests, "Too many changes in a short time. Try again in a minute.")
+			return
+		}
+		next(w, r)
+	}
+}
+
+// browseLimited applies the generous per-IP limit for Browse.
+func (a *api) browseLimited(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ok, wait := a.reads.allow("browse:" + clientIP(r))
+		if !ok {
+			w.Header().Set("Retry-After", fmt.Sprint(int(math.Ceil(wait.Seconds()))))
+			writeErrors(w, http.StatusTooManyRequests, "Too many requests in a short time. Try again in a minute.")
 			return
 		}
 		next(w, r)

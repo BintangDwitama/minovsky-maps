@@ -5,12 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/BintangDwitama/minovsky-maps/server/internal/accounts"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/publishing"
+	"github.com/BintangDwitama/minovsky-maps/server/internal/scenario"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/store/postgres"
 )
 
@@ -35,13 +37,13 @@ func TestRepositoryRoundTrip(t *testing.T) {
 	id := "T" + randomSuffix(t)
 	doc := json.RawMessage(`{"schemaVersion":1,"meta":{"name":"x"}}`)
 
-	if _, err := s.Create(ctx, id, 0, []byte("hash"), doc, 1); err != nil {
+	if _, err := s.Create(ctx, id, 0, []byte("hash"), publishing.Link, scenario.Facets{}, doc, 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Create(ctx, id, 0, []byte("hash"), doc, 1); !errors.Is(err, publishing.ErrIDTaken) {
+	if _, err := s.Create(ctx, id, 0, []byte("hash"), publishing.Link, scenario.Facets{}, doc, 1); !errors.Is(err, publishing.ErrIDTaken) {
 		t.Fatalf("duplicate id: %v", err)
 	}
-	if _, err := s.AddVersion(ctx, id, json.RawMessage(`{"schemaVersion":1,"meta":{"name":"y"}}`), 1); err != nil {
+	if _, err := s.AddVersion(ctx, id, scenario.Facets{}, json.RawMessage(`{"schemaVersion":1,"meta":{"name":"y"}}`), 1); err != nil {
 		t.Fatal(err)
 	}
 	rec, err := s.Latest(ctx, id)
@@ -58,7 +60,7 @@ func TestRepositoryRoundTrip(t *testing.T) {
 	if _, err := s.Latest(ctx, "Zzzzzzz0"); !errors.Is(err, publishing.ErrNotFound) {
 		t.Fatalf("missing id: %v", err)
 	}
-	if _, err := s.AddVersion(ctx, "Zzzzzzz0", rec.Doc, 1); !errors.Is(err, publishing.ErrNotFound) {
+	if _, err := s.AddVersion(ctx, "Zzzzzzz0", scenario.Facets{}, rec.Doc, 1); !errors.Is(err, publishing.ErrNotFound) {
 		t.Fatalf("version for missing id: %v", err)
 	}
 }
@@ -67,7 +69,7 @@ func TestReports(t *testing.T) {
 	ctx := context.Background()
 	s := open(t)
 	id := "R" + randomSuffix(t)
-	if _, err := s.Create(ctx, id, 0, []byte("h"), json.RawMessage(`{"schemaVersion":1,"meta":{"name":"Mesa"}}`), 1); err != nil {
+	if _, err := s.Create(ctx, id, 0, []byte("h"), publishing.Link, scenario.Facets{}, json.RawMessage(`{"schemaVersion":1,"meta":{"name":"Mesa"}}`), 1); err != nil {
 		t.Fatal(err)
 	}
 	name, err := s.ScenarioName(ctx, id)
@@ -134,10 +136,10 @@ func TestAccountsOwnershipAndClaim(t *testing.T) {
 	// owned and legacy scenarios, claim, list, remove
 	doc := json.RawMessage(`{"schemaVersion":1,"meta":{"name":"Owned"}}`)
 	owned, legacy := "O"+randomSuffix(t), "L"+randomSuffix(t)
-	if _, err := s.Create(ctx, owned, a.ID, nil, doc, 1); err != nil {
+	if _, err := s.Create(ctx, owned, a.ID, nil, publishing.Link, scenario.Facets{}, doc, 1); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.Create(ctx, legacy, 0, []byte("tokhash"), doc, 1); err != nil {
+	if _, err := s.Create(ctx, legacy, 0, []byte("tokhash"), publishing.Link, scenario.Facets{}, doc, 1); err != nil {
 		t.Fatal(err)
 	}
 	if rec, _ := s.Latest(ctx, owned); rec.OwnerID != a.ID || rec.OwnerName != "Tester" {
@@ -167,6 +169,68 @@ func TestAccountsOwnershipAndClaim(t *testing.T) {
 	if _, err := s.SessionAccount(ctx, tok, now); !errors.Is(err, accounts.ErrNotFound) {
 		t.Fatalf("session survived: %v", err)
 	}
+}
+func TestVisibilityAndBrowse(t *testing.T) {
+	ctx := context.Background()
+	s := open(t)
+	a, err := s.UpsertGoogleAccount(ctx, "browse-"+randomSuffix(t), "b@example.com", "Browse Tester "+randomSuffix(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc := json.RawMessage(`{"schemaVersion":1,"meta":{"name":"x"}}`)
+	tag := randomSuffix(t) // unique search text, so other rows on the branch don't interfere
+	facets := scenario.Facets{Name: "Browse " + tag, Width: 15, Height: 15, HexCount: 225, Deployment: "carriers", SquadSize: 4, HasElevation: true}
+	priv, pub := "P"+randomSuffix(t), "Q"+randomSuffix(t)
+	if _, err := s.Create(ctx, priv, a.ID, nil, publishing.Private, facets, doc, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Create(ctx, pub, a.ID, nil, publishing.Link, facets, doc, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ScenarioName(ctx, priv); !errors.Is(err, publishing.ErrNotFound) {
+		t.Fatalf("private must not be reportable: %v", err)
+	}
+	if rec, _ := s.Latest(ctx, priv); rec.Visibility != publishing.Private {
+		t.Fatalf("visibility %q", rec.Visibility)
+	}
+	search := func(q publishing.BrowseQuery) []publishing.BrowseItem {
+		t.Helper()
+		q.Q, q.Limit = tag, 25
+		items, err := s.Browse(ctx, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return items
+	}
+	if n := len(search(publishing.BrowseQuery{})); n != 0 {
+		t.Fatalf("link scenarios must not be listed: %d", n)
+	}
+	if err := s.SetVisibility(ctx, pub, publishing.Public); err != nil {
+		t.Fatal(err)
+	}
+	items := search(publishing.BrowseQuery{Size: publishing.SizeStandard, Deployment: "carriers", Squad: 4, Elevation: true})
+	if len(items) != 1 || items[0].ID != pub || items[0].OwnerName != a.DisplayName || items[0].ListedAt.IsZero() || len(items[0].Doc) == 0 {
+		t.Fatalf("browse: %+v", items)
+	}
+	if n := len(search(publishing.BrowseQuery{Deployment: "bases"})); n != 0 {
+		t.Fatalf("filter: %d", n)
+	}
+	if n := len(search(publishing.BrowseQuery{After: &publishing.Cursor{Key: items[0].ListedAt, ID: items[0].ID}})); n != 0 {
+		t.Fatalf("cursor after the only item: %d", n)
+	}
+	if _, err := s.AddVersion(ctx, pub, scenario.Facets{Name: "Renamed " + tag, HexCount: 10, Deployment: "bases"}, doc, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := search(publishing.BrowseQuery{Size: publishing.SizeSmaller, Sort: publishing.SortUpdated}); len(got) != 1 || got[0].Name != "Renamed "+tag {
+		t.Fatalf("facets after update: %+v", got)
+	}
+	if list, _ := s.ListOwned(ctx, a.ID); len(list) != 2 || list[0].Visibility == "" {
+		t.Fatalf("owned: %+v", list)
+	}
+	if err := s.DeleteAccount(ctx, a.ID); err != nil {
+		t.Fatal(err)
+	}
+	s.BackfillFacets(ctx, slog.Default()) // rows saved before facets existed (no-op when none)
 }
 func randomSuffix(t *testing.T) string {
 	t.Helper()

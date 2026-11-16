@@ -58,16 +58,23 @@ Links are permanent. The `1.` prefix is the link format version; never change ho
 
 ## Publishing
 
-**Publish** sends the scenario to the API and gives a short link, `https://<host>/s/<id>`, that always shows the latest version. **Update** stores a new version behind the same link.
+**Save online** sends the scenario to the API and gives it a short link, `https://<host>/s/<id>`, that always shows the latest version. **Update online** stores a new version behind the same link.
 
-- Publishing needs **Sign in with Google** (the only sign-in method). Saving files and share links never do. The published scenario belongs to the account; its sheet shows the account's display name as a verified author. The email address is stored but never shown.
+- Each saved scenario has a **visibility**, chosen when saving and changeable any time (in the save dialog, My scenarios, or the owner's banner on the sheet) without changing the link:
+  | Visibility | Who can open the link | Listed in Browse |
+  |---|---|---|
+  | **Only me** (`private`, the default for new saves) | only the owner; everyone else gets "not found" (reports too) | no |
+  | **Anyone with the link** (`link`; every scenario saved before visibility existed) | anyone | no |
+  | **Everyone** (`public`) | anyone | yes |
+- **Browse** (`/browse`) lists Everyone scenarios for anyone, signed in or not: search (name, description, author), filters (board size, deployment, squad size, elevation), newest or recently updated first, 24 per page. Filters live in the address, so a filtered view can be shared. Thumbnails are drawn in the browser from the scenario. The server stores a few searchable facts per scenario (`name`, `board_width`, `deployment`, …) on every save; older rows are filled in by a background backfill at startup.
+- Saving online needs **Sign in with Google** (the only sign-in method). Saving files and share links never do. The scenario belongs to the account; its sheet shows the account's display name as a verified author. The email address is stored but never shown.
 - The session is an `HttpOnly`, `Secure`, `SameSite=Lax` cookie (`mm_session`, path `/api`, 30 days). Changes made with it must also carry the header `X-Minovsky-Client: web`.
 - Scenarios published before accounts existed were updated with a secret **edit token** (private edit link `/s/<id>#edit=<token>`). Those links keep working until the scenario is claimed: signing in claims every scenario the browser holds a token for, after which the old token stops working.
 - Every update is kept as a version; reads return the newest.
 - The API validates with the same JSON Schema and integrity rules as the editor.
 - **My scenarios** lists the account's scenarios on any device (Open, Edit, Copy link, Delete). Signed out, it lists the browser's pre-account scenarios instead.
 - Users can rename themselves and delete their account (which takes their scenarios offline) from the account menu. `#/privacy` explains what is stored.
-- Publish, Update and **Report** are protected by Cloudflare Turnstile (a free, mostly invisible bot check). Reports from the **Report** button on a published sheet are stored and emailed to the site owner.
+- Save online, Update online and **Report** are protected by Cloudflare Turnstile (a free, mostly invisible bot check). Reports from the **Report** button on a published sheet are stored and emailed to the site owner.
 
 ## Deploying (all free, no payment card)
 

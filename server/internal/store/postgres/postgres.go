@@ -17,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/BintangDwitama/minovsky-maps/server/internal/publishing"
+	"github.com/BintangDwitama/minovsky-maps/server/internal/scenario"
 )
 
 //go:embed migrations/*.sql
@@ -95,22 +96,50 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 	return tx.Commit(ctx)
 }
 
-func (s *Store) Create(ctx context.Context, id string, ownerID int64, tokenHash []byte, doc json.RawMessage, schemaVersion int) (time.Time, error) {
+func (s *Store) Create(ctx context.Context, id string, ownerID int64, tokenHash []byte, v publishing.Visibility, f scenario.Facets, doc json.RawMessage, schemaVersion int) (time.Time, error) {
 	var at time.Time
 	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
-		if _, err := tx.Exec(ctx, `INSERT INTO scenarios (id, owner_id, edit_token_hash) VALUES ($1, $2, $3)`,
-			id, nullID(ownerID), tokenHash); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO scenarios (id, owner_id, edit_token_hash, visibility) VALUES ($1, $2, $3, $4)`,
+			id, nullID(ownerID), tokenHash, string(v)); err != nil {
 			var pgErr *pgconn.PgError
 			if errors.As(err, &pgErr) && pgErr.Code == "23505" { // unique_violation
 				return publishing.ErrIDTaken
 			}
 			return err
 		}
-		return tx.QueryRow(ctx,
+		if err := tx.QueryRow(ctx,
 			`INSERT INTO scenario_versions (scenario_id, doc, schema_version) VALUES ($1, $2, $3) RETURNING created_at`,
-			id, []byte(doc), schemaVersion).Scan(&at)
+			id, []byte(doc), schemaVersion).Scan(&at); err != nil {
+			return err
+		}
+		if err := writeFacets(ctx, tx, id, f, at); err != nil {
+			return err
+		}
+		if v == publishing.Public {
+			_, err := tx.Exec(ctx, `UPDATE scenarios SET listed_at = $2 WHERE id = $1`, id, at)
+			return err
+		}
+		return nil
 	})
 	return at, err
+}
+
+// writeFacets stores the searchable facts of the latest version.
+func writeFacets(ctx context.Context, tx pgx.Tx, id string, f scenario.Facets, updatedAt time.Time) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE scenarios SET name = $2, description = $3, board_width = $4, board_height = $5,
+			hex_count = $6, deployment = $7, squad_size = $8, has_elevation = $9, updated_at = $10
+		WHERE id = $1`,
+		id, f.Name, f.Description, nullInt(f.Width), nullInt(f.Height), f.HexCount, f.Deployment,
+		f.SquadSize, f.HasElevation, updatedAt)
+	return err
+}
+
+func nullInt(n int) *int {
+	if n == 0 {
+		return nil
+	}
+	return &n
 }
 
 func (s *Store) Latest(ctx context.Context, id string) (publishing.Record, error) {
@@ -120,16 +149,17 @@ func (s *Store) Latest(ctx context.Context, id string) (publishing.Record, error
 		takenDown *time.Time
 		ownerID   *int64
 		ownerName *string
+		vis       string
 	)
 	err := s.pool.QueryRow(ctx, `
-		SELECT s.edit_token_hash, s.owner_id, a.display_name, s.taken_down_at, v.doc, v.created_at
+		SELECT s.edit_token_hash, s.owner_id, a.display_name, s.visibility, s.taken_down_at, v.doc, v.created_at
 		FROM scenarios s
 		LEFT JOIN accounts a ON a.id = s.owner_id
 		JOIN LATERAL (
 			SELECT doc, created_at FROM scenario_versions
 			WHERE scenario_id = s.id ORDER BY id DESC LIMIT 1
 		) v ON true
-		WHERE s.id = $1`, id).Scan(&rec.EditTokenHash, &ownerID, &ownerName, &takenDown, &doc, &rec.UpdatedAt)
+		WHERE s.id = $1`, id).Scan(&rec.EditTokenHash, &ownerID, &ownerName, &vis, &takenDown, &doc, &rec.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return publishing.Record{}, publishing.ErrNotFound
 	}
@@ -138,6 +168,7 @@ func (s *Store) Latest(ctx context.Context, id string) (publishing.Record, error
 	}
 	rec.Doc = doc
 	rec.TakenDown = takenDown != nil
+	rec.Visibility = publishing.Visibility(vis)
 	if ownerID != nil {
 		rec.OwnerID = *ownerID
 	}
@@ -150,7 +181,7 @@ func (s *Store) Latest(ctx context.Context, id string) (publishing.Record, error
 // ListOwned returns the owner's live scenarios, newest update first.
 func (s *Store) ListOwned(ctx context.Context, ownerID int64) ([]publishing.Summary, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT s.id, coalesce(v.doc->'meta'->>'name', ''), v.created_at
+		SELECT s.id, coalesce(v.doc->'meta'->>'name', ''), s.visibility, v.created_at
 		FROM scenarios s
 		JOIN LATERAL (
 			SELECT doc, created_at FROM scenario_versions
@@ -163,7 +194,9 @@ func (s *Store) ListOwned(ctx context.Context, ownerID int64) ([]publishing.Summ
 	}
 	out, err := pgx.CollectRows(rows, func(r pgx.CollectableRow) (publishing.Summary, error) {
 		var sum publishing.Summary
-		err := r.Scan(&sum.ID, &sum.Name, &sum.UpdatedAt)
+		var vis string
+		err := r.Scan(&sum.ID, &sum.Name, &vis, &sum.UpdatedAt)
+		sum.Visibility = publishing.Visibility(vis)
 		return sum, err
 	})
 	if out == nil {
@@ -204,16 +237,17 @@ func (s *Store) ScenarioName(ctx context.Context, id string) (string, error) {
 	var (
 		name      *string
 		takenDown *time.Time
+		vis       string
 	)
 	err := s.pool.QueryRow(ctx, `
-		SELECT v.doc->'meta'->>'name', s.taken_down_at
+		SELECT v.doc->'meta'->>'name', s.taken_down_at, s.visibility
 		FROM scenarios s
 		JOIN LATERAL (
 			SELECT doc FROM scenario_versions
 			WHERE scenario_id = s.id ORDER BY id DESC LIMIT 1
 		) v ON true
-		WHERE s.id = $1`, id).Scan(&name, &takenDown)
-	if errors.Is(err, pgx.ErrNoRows) || (err == nil && takenDown != nil) {
+		WHERE s.id = $1`, id).Scan(&name, &takenDown, &vis)
+	if errors.Is(err, pgx.ErrNoRows) || (err == nil && (takenDown != nil || vis == string(publishing.Private))) {
 		return "", publishing.ErrNotFound
 	}
 	if err != nil {
@@ -243,11 +277,16 @@ func (s *Store) MarkEmailed(ctx context.Context, id int64) error {
 	return err
 }
 
-func (s *Store) AddVersion(ctx context.Context, id string, doc json.RawMessage, schemaVersion int) (time.Time, error) {
+func (s *Store) AddVersion(ctx context.Context, id string, f scenario.Facets, doc json.RawMessage, schemaVersion int) (time.Time, error) {
 	var at time.Time
-	err := s.pool.QueryRow(ctx,
-		`INSERT INTO scenario_versions (scenario_id, doc, schema_version) VALUES ($1, $2, $3) RETURNING created_at`,
-		id, []byte(doc), schemaVersion).Scan(&at)
+	err := pgx.BeginFunc(ctx, s.pool, func(tx pgx.Tx) error {
+		if err := tx.QueryRow(ctx,
+			`INSERT INTO scenario_versions (scenario_id, doc, schema_version) VALUES ($1, $2, $3) RETURNING created_at`,
+			id, []byte(doc), schemaVersion).Scan(&at); err != nil {
+			return err
+		}
+		return writeFacets(ctx, tx, id, f, at)
+	})
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == "23503" { // foreign_key_violation
 		return time.Time{}, publishing.ErrNotFound

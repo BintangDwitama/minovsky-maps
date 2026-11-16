@@ -66,6 +66,8 @@ export interface SheetViewProps {
   editActions: ReactNode;
   /** Extra actions after Print (e.g. Report on published scenarios). */
   trailingActions?: ReactNode;
+  /** A notice above the title (e.g. "Only you can see this"). */
+  notice?: ReactNode;
   /** Extra dialogs owned by the page. */
   extraOverlay?: ReactNode;
   services: SheetServices;
@@ -82,6 +84,7 @@ export function SheetView({
   verifiedAuthor = null,
   editActions,
   trailingActions,
+  notice,
   extraOverlay,
   services,
 }: SheetViewProps) {
@@ -120,7 +123,12 @@ export function SheetView({
           {trailingActions}
         </>
       }
-      intro={<SheetHeader scenario={s} verifiedAuthor={verifiedAuthor} />}
+      intro={
+        <>
+          {notice}
+          <SheetHeader scenario={s} verifiedAuthor={verifiedAuthor} />
+        </>
+      }
       board={<SheetBoard scenario={s} />}
       details={
         <>

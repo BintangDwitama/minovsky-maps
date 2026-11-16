@@ -1,8 +1,9 @@
-﻿import { useState } from 'react';
+import { useState } from 'react';
 import { HttpAccountService } from '../infrastructure/httpAccountService';
 import { LocalStoragePublicationStore } from '../infrastructure/localStoragePublicationStore';
 import { AccountProvider } from './hooks/useAccount';
 import { AccountNotice } from './organisms/AccountNotice';
+import { BrowsePage } from './pages/BrowsePage';
 import { EditorPage } from './pages/EditorPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { PublishedSheetPage } from './pages/PublishedSheetPage';
@@ -28,6 +29,7 @@ function Page() {
   const route = useRoute();
   if (route.page === 'sheet') return <SheetPage key={route.link} link={route.link} />;
   if (route.page === 'privacy') return <PrivacyPage />;
+  if (route.page === 'browse') return <BrowsePage />;
   if (route.page === 'published') {
     return <PublishedSheetPage key={route.id} id={route.id} editToken={route.editToken} />;
   }

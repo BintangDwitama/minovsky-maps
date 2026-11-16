@@ -62,6 +62,9 @@ export interface CallOptions {
   onSlow?: () => void;
 }
 
+/** Who can see a published scenario: only the owner, anyone with the link, or everyone (Browse). */
+export type Visibility = 'private' | 'link' | 'public';
+
 /** A published scenario as read by anyone; `owner` is the verified author of owned scenarios. */
 export interface PublishedRead {
   readonly scenario: unknown;
@@ -69,11 +72,19 @@ export interface PublishedRead {
   readonly owner: { readonly displayName: string } | null;
   /** The signed-in account owns it. */
   readonly isOwner: boolean;
+  /** Only told to the owner. */
+  readonly visibility: Visibility | null;
 }
 
 export interface ScenarioPublisher {
-  /** Publish as the signed-in account (the session cookie travels with the request). */
-  publish(s: Scenario, opts?: CallOptions): Promise<ApiResult<{ id: string; updatedAt: string }>>;
+  /** Save online as the signed-in account (the session cookie travels with the request). */
+  publish(
+    s: Scenario,
+    visibility: Visibility,
+    opts?: CallOptions,
+  ): Promise<ApiResult<{ id: string; updatedAt: string }>>;
+  /** Change who can see a scenario the signed-in account owns (same link). */
+  setVisibility(id: string, visibility: Visibility): Promise<ApiResult<object>>;
   /** Update as the owner (editToken null) or with a legacy edit token. */
   update(
     id: string,
@@ -107,7 +118,50 @@ export interface AccountStatus {
 export interface OwnedScenario {
   readonly id: string;
   readonly name: string;
+  readonly visibility: Visibility;
   readonly updatedAt: string;
+}
+
+/* ---------------- browse (API) ---------------- */
+
+export type BrowseSize = 'standard' | 'smaller' | 'larger';
+export type BrowseSort = 'new' | 'updated';
+
+/** A Browse search; empty fields mean "any". */
+export interface BrowseQuery {
+  readonly q: string;
+  readonly size: BrowseSize | null;
+  readonly deployment: 'bases' | 'carriers' | null;
+  readonly squad: number | null;
+  readonly elevation: boolean;
+  readonly sort: BrowseSort;
+}
+
+export interface BrowseItem {
+  readonly id: string;
+  readonly name: string;
+  readonly ownerName: string;
+  /** 0 when the board is not a full rectangle. */
+  readonly width: number;
+  readonly height: number;
+  readonly hexCount: number;
+  readonly deployment: string;
+  readonly squadSize: number;
+  readonly hasElevation: boolean;
+  readonly listedAt: string;
+  readonly updatedAt: string;
+  /** Unvalidated document, for the thumbnail. */
+  readonly scenario: unknown;
+}
+
+export interface BrowsePage {
+  readonly items: readonly BrowseItem[];
+  /** Cursor for the next page, or null when this is the last. */
+  readonly next: string | null;
+}
+
+export interface ScenarioBrowser {
+  browse(q: BrowseQuery, cursor: string | null, opts?: CallOptions): Promise<ApiResult<BrowsePage>>;
 }
 
 /** Sign-in with Google and the signed-in account's data. */

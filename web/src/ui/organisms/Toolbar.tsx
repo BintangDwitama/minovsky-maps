@@ -5,6 +5,7 @@ import { BrandMark } from '../atoms/BrandMark';
 import { Brand } from '../molecules/Brand';
 import { Menu } from '../molecules/Menu';
 import { useAccountMenu } from './AccountMenu';
+import { BROWSE_PATH, goToPath } from '../router';
 
 export interface ToolbarProps {
   onNew(): void;
@@ -84,11 +85,12 @@ export function Toolbar({
             { label: 'Open', icon: 'open', onSelect: onOpen },
             { label: 'Save', icon: 'save', onSelect: onSave },
             {
-              label: publishMode === 'update' ? 'Update' : 'Publish',
+              label: publishMode === 'update' ? 'Update online' : 'Save online',
               icon: 'upload',
               onSelect: onPublish,
             },
             { label: 'My scenarios', icon: 'list', onSelect: onMyScenarios },
+            { label: 'Browse scenarios', icon: 'grid', onSelect: () => goToPath(BROWSE_PATH) },
             { label: 'Export PNG', icon: 'image', onSelect: onExport },
             ...(acct.hidden
               ? []
@@ -133,19 +135,27 @@ export function Toolbar({
         onClick={onPublish}
         title={
           publishMode === 'update'
-            ? 'Save this version to the published scenario; its short link shows it immediately'
-            : 'Publish to get a short link you can keep updating'
+            ? 'Save this version online; its link shows it immediately'
+            : 'Save to your account, then choose who can see it'
         }
       >
-        {publishMode === 'update' ? 'Update' : 'Publish'}
+        {publishMode === 'update' ? 'Update online' : 'Save online'}
       </Button>
       <Button
         variant="frame"
         icon="list"
         onClick={onMyScenarios}
-        title="Scenarios published from this browser"
+        title="Your scenarios saved online"
       >
         My scenarios
+      </Button>
+      <Button
+        variant="frame"
+        icon="grid"
+        onClick={() => goToPath(BROWSE_PATH)}
+        title="Find scenarios other players share"
+      >
+        Browse
       </Button>
       <Button variant="frame" icon="image" onClick={onExport}>
         Export PNG

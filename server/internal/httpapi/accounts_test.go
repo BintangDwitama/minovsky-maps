@@ -160,7 +160,7 @@ func TestClaimAndMyScenarios(t *testing.T) {
 	doc := wrap(t, "examples/minimal.scenario.json")
 	raw := []byte(strings.TrimSuffix(strings.TrimPrefix(doc, `{"scenario":`), "}"))
 	for _, id := range []string{"Legacy01", "Legacy02"} {
-		if _, err := f.store.Create(ctx, id, 0, publishing.HashToken("tok-"+id), raw, 1); err != nil {
+		if _, err := f.store.Create(ctx, id, 0, publishing.HashToken("tok-"+id), publishing.Link, scenario.Facets{}, raw, 1); err != nil {
 			t.Fatal(err)
 		}
 	}

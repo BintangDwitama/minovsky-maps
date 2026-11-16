@@ -29,7 +29,7 @@ func setup(t *testing.T, n reports.Notifier) (*reports.Service, *memory.Store, s
 	store := memory.New()
 	v, _ := scenario.NewValidator()
 	doc, _ := fs.ReadFile(schema.Examples, "examples/sample-mesa.scenario.json")
-	created, err := publishing.NewService(store, v).Publish(context.Background(), 1, doc)
+	created, err := publishing.NewService(store, v).Publish(context.Background(), 1, publishing.Link, doc)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,5 +97,22 @@ func TestValidation(t *testing.T) {
 	}
 	if n := len(store.Reports()); n != 1 {
 		t.Fatalf("only the valid report should be stored, got %d", n)
+	}
+}
+
+func TestPrivateScenariosCannotBeReported(t *testing.T) {
+	store := memory.New()
+	v, _ := scenario.NewValidator()
+	doc, _ := fs.ReadFile(schema.Examples, "examples/minimal.scenario.json")
+	c, err := publishing.NewService(store, v).Publish(context.Background(), 1, publishing.Private, doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	svc := reports.NewService(store, &recordingNotifier{}, nil)
+	if err := svc.Report(context.Background(), reports.Input{ScenarioID: c.ID, Reason: "spam"}); !errors.Is(err, publishing.ErrNotFound) {
+		t.Fatalf("private: %v", err)
+	}
+	if len(store.Reports()) != 0 {
+		t.Fatal("nothing may be stored")
 	}
 }

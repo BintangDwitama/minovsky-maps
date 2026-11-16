@@ -13,8 +13,10 @@ import type {
   PublicationStore,
   ReportReason,
   ScenarioPublisher,
+  Visibility,
 } from './ports';
 import { saveBlockers } from './useCases';
+import { DEFAULT_VISIBILITY } from './visibility';
 
 /** Path of a published scenario's page. */
 export const PUBLISHED_PATH = '/s/';
@@ -41,16 +43,17 @@ export const canUpdate = (session: EditorSession, store: PublicationStore): bool
   return !!ref && (ref.owned === true || store.get(ref.id) !== null);
 };
 
-/** First publish of the open document, owned by the signed-in account. */
+/** First online save of the open document, owned by the signed-in account. */
 export const publishScenario = async (
   session: EditorSession,
   publisher: ScenarioPublisher,
+  visibility: Visibility = DEFAULT_VISIBILITY,
   opts?: CallOptions,
 ): Promise<PublishingResult<{ publication: PublishedRef }>> => {
   const s = session.scenario;
   const blockers = saveBlockers(s);
   if (blockers.length > 0) return { ok: false, failure: 'blocked', errors: blockers };
-  const r = await publisher.publish(s, opts);
+  const r = await publisher.publish(s, visibility, opts);
   if (!r.ok) return r;
   session.setPublication({ id: r.value.id, owned: true });
   return { ok: true, publication: { id: r.value.id, name: s.meta.name } };
@@ -92,6 +95,7 @@ export const openPublished = async (
     updatedAt: string;
     ownerName: string | null;
     isOwner: boolean;
+    visibility: Visibility | null;
   }>
 > => {
   const r = await publisher.fetch(id, opts);
@@ -104,7 +108,18 @@ export const openPublished = async (
     updatedAt: r.value.updatedAt,
     ownerName: r.value.owner?.displayName ?? null,
     isOwner: r.value.isOwner,
+    visibility: r.value.visibility,
   };
+};
+
+/** Change who can see a scenario the signed-in account owns; the link stays the same. */
+export const changeVisibility = async (
+  publisher: ScenarioPublisher,
+  id: string,
+  visibility: Visibility,
+): Promise<PublishingResult<object>> => {
+  const r = await publisher.setVisibility(id, visibility);
+  return r.ok ? { ok: true } : r;
 };
 
 /** Open a published scenario in the editor as that published document (Update available). */

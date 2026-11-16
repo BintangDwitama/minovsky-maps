@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  changeVisibility,
   openPublished,
   rememberEditToken,
   reportScenario,
@@ -19,7 +20,17 @@ import { renderBoardSvg } from '../export/renderBoardSvg';
 import { ErrorList } from '../organisms/dialogs';
 import { ReportDialog } from '../organisms/ReportDialog';
 import { PUBLISH_FAILURE } from '../publishMessages';
-import { appAddress, editHash, editPublishedHash, navigate, replaceHashSilently } from '../router';
+import {
+  appAddress,
+  BROWSE_PATH,
+  editHash,
+  editPublishedHash,
+  goToPath,
+  navigate,
+  replaceHashSilently,
+} from '../router';
+import { PrivateNotice } from '../organisms/PrivateNotice';
+import type { Visibility } from '../../application/ports';
 import { SheetMessage, SheetView } from './SheetView';
 
 /** Composition root of the published-scenario sheet. */
@@ -36,7 +47,13 @@ const buildServices = () => ({
 
 type State =
   | { kind: 'loading'; slow: boolean }
-  | { kind: 'ready'; scenario: Scenario; ownerName: string | null; isOwner: boolean }
+  | {
+      kind: 'ready';
+      scenario: Scenario;
+      ownerName: string | null;
+      isOwner: boolean;
+      visibility: Visibility | null;
+    }
   | { kind: 'not-found' }
   | { kind: 'invalid'; errors: string[] }
   | { kind: 'unavailable' };
@@ -78,6 +95,7 @@ export function PublishedSheetPage({ id, editToken }: PublishedSheetPageProps) {
           scenario: r.scenario,
           ownerName: r.ownerName,
           isOwner: r.isOwner,
+          visibility: r.visibility,
         });
         const known = services.publications.get(id);
         if (known) services.publications.save({ ...known, name: r.scenario.meta.name });
@@ -148,6 +166,17 @@ export function PublishedSheetPage({ id, editToken }: PublishedSheetPageProps) {
           storedIn="server"
           verifiedAuthor={state.ownerName}
           services={services}
+          notice={
+            state.isOwner && state.visibility === 'private' ? (
+              <PrivateNotice
+                onShare={async (v) => {
+                  const r = await changeVisibility(services.publisher, id, v);
+                  if (r.ok) setState({ ...state, visibility: v });
+                  return r.ok ? null : r.errors.join(' ');
+                }}
+              />
+            ) : null
+          }
           editActions={
             <>
               {canEdit ? (
@@ -171,14 +200,26 @@ export function PublishedSheetPage({ id, editToken }: PublishedSheetPageProps) {
             </>
           }
           trailingActions={
-            <Button
-              variant="frame"
-              icon="flag"
-              onClick={() => setReporting(true)}
-              title="Tell the site owner about a problem with this scenario"
-            >
-              Report
-            </Button>
+            <>
+              <Button
+                variant="frame"
+                icon="grid"
+                onClick={() => goToPath(BROWSE_PATH)}
+                title="Find more scenarios"
+              >
+                Browse
+              </Button>
+              {state.visibility === 'private' ? null : (
+                <Button
+                  variant="frame"
+                  icon="flag"
+                  onClick={() => setReporting(true)}
+                  title="Tell the site owner about a problem with this scenario"
+                >
+                  Report
+                </Button>
+              )}
+            </>
           }
           extraOverlay={
             reporting ? (

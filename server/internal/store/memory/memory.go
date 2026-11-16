@@ -7,11 +7,13 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/BintangDwitama/minovsky-maps/server/internal/accounts"
 	"github.com/BintangDwitama/minovsky-maps/server/internal/publishing"
+	scn "github.com/BintangDwitama/minovsky-maps/server/internal/scenario"
 )
 
 type version struct {
@@ -23,6 +25,9 @@ type version struct {
 type scenario struct {
 	tokenHash     []byte
 	ownerID       int64
+	visibility    publishing.Visibility
+	listedAt      time.Time
+	facets        scn.Facets
 	versions      []version
 	takenDown     bool
 	removedReason string
@@ -66,14 +71,18 @@ func NewWithClock(now func() time.Time) *Store {
 
 /* ---------------- publishing.Repository ---------------- */
 
-func (s *Store) Create(_ context.Context, id string, ownerID int64, tokenHash []byte, doc json.RawMessage, schemaVersion int) (time.Time, error) {
+func (s *Store) Create(_ context.Context, id string, ownerID int64, tokenHash []byte, v publishing.Visibility, f scn.Facets, doc json.RawMessage, schemaVersion int) (time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if _, ok := s.data[id]; ok {
 		return time.Time{}, publishing.ErrIDTaken
 	}
 	at := s.now()
-	s.data[id] = &scenario{tokenHash: tokenHash, ownerID: ownerID, versions: []version{{clone(doc), schemaVersion, at}}}
+	sc := &scenario{tokenHash: tokenHash, ownerID: ownerID, visibility: v, facets: f, versions: []version{{clone(doc), schemaVersion, at}}}
+	if v == publishing.Public {
+		sc.listedAt = at
+	}
+	s.data[id] = sc
 	return at, nil
 }
 
@@ -85,14 +94,14 @@ func (s *Store) Latest(_ context.Context, id string) (publishing.Record, error) 
 		return publishing.Record{}, publishing.ErrNotFound
 	}
 	v := sc.versions[len(sc.versions)-1]
-	rec := publishing.Record{ID: id, EditTokenHash: sc.tokenHash, OwnerID: sc.ownerID, Doc: clone(v.doc), UpdatedAt: v.at, TakenDown: sc.takenDown}
+	rec := publishing.Record{ID: id, EditTokenHash: sc.tokenHash, OwnerID: sc.ownerID, Visibility: sc.visibility, Doc: clone(v.doc), UpdatedAt: v.at, TakenDown: sc.takenDown}
 	if a, ok := s.accounts[sc.ownerID]; ok {
 		rec.OwnerName = a.DisplayName
 	}
 	return rec, nil
 }
 
-func (s *Store) AddVersion(_ context.Context, id string, doc json.RawMessage, schemaVersion int) (time.Time, error) {
+func (s *Store) AddVersion(_ context.Context, id string, f scn.Facets, doc json.RawMessage, schemaVersion int) (time.Time, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sc, ok := s.data[id]
@@ -101,7 +110,80 @@ func (s *Store) AddVersion(_ context.Context, id string, doc json.RawMessage, sc
 	}
 	at := s.now()
 	sc.versions = append(sc.versions, version{clone(doc), schemaVersion, at})
+	sc.facets = f
 	return at, nil
+}
+
+func (s *Store) SetVisibility(_ context.Context, id string, v publishing.Visibility) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sc, ok := s.data[id]
+	if !ok {
+		return publishing.ErrNotFound
+	}
+	if v == publishing.Public && sc.visibility != publishing.Public {
+		sc.listedAt = s.now()
+	}
+	sc.visibility = v
+	return nil
+}
+
+// Browse filters, sorts and pages public scenarios in memory (same rules as the Postgres query).
+func (s *Store) Browse(_ context.Context, q publishing.BrowseQuery) ([]publishing.BrowseItem, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	needle := strings.ToLower(q.Q)
+	items := []publishing.BrowseItem{}
+	for id, sc := range s.data {
+		f := sc.facets
+		if sc.visibility != publishing.Public || sc.takenDown {
+			continue
+		}
+		owner := ""
+		if a, ok := s.accounts[sc.ownerID]; ok {
+			owner = a.DisplayName
+		}
+		switch {
+		case needle != "" && !strings.Contains(strings.ToLower(f.Name), needle) &&
+			!strings.Contains(strings.ToLower(f.Description), needle) &&
+			!strings.Contains(strings.ToLower(owner), needle),
+			q.Size == publishing.SizeStandard && (f.Width != publishing.StandardWidth || f.Height != publishing.StandardHeight),
+			q.Size == publishing.SizeSmaller && f.HexCount >= publishing.StandardHexes,
+			q.Size == publishing.SizeLarger && f.HexCount <= publishing.StandardHexes,
+			q.Deployment != "" && f.Deployment != q.Deployment,
+			q.Squad != 0 && f.SquadSize != q.Squad,
+			q.Elevation && !f.HasElevation:
+			continue
+		}
+		v := sc.versions[len(sc.versions)-1]
+		items = append(items, publishing.BrowseItem{
+			ID: id, Name: f.Name, OwnerName: owner, Width: f.Width, Height: f.Height,
+			HexCount: f.HexCount, Deployment: f.Deployment, SquadSize: f.SquadSize,
+			HasElevation: f.HasElevation, ListedAt: sc.listedAt, UpdatedAt: v.at, Doc: clone(v.doc),
+		})
+	}
+	sort.Slice(items, func(i, j int) bool {
+		ki, kj := items[i].SortKey(q.Sort), items[j].SortKey(q.Sort)
+		if !ki.Equal(kj) {
+			return ki.After(kj)
+		}
+		return items[i].ID > items[j].ID
+	})
+	if c := q.After; c != nil {
+		k := 0
+		for k < len(items) {
+			key := items[k].SortKey(q.Sort)
+			if key.Before(c.Key) || (key.Equal(c.Key) && items[k].ID < c.ID) {
+				break
+			}
+			k++
+		}
+		items = items[k:]
+	}
+	if q.Limit > 0 && len(items) > q.Limit {
+		items = items[:q.Limit]
+	}
+	return items, nil
 }
 
 func (s *Store) ListOwned(_ context.Context, ownerID int64) ([]publishing.Summary, error) {
@@ -113,7 +195,7 @@ func (s *Store) ListOwned(_ context.Context, ownerID int64) ([]publishing.Summar
 			continue
 		}
 		v := sc.versions[len(sc.versions)-1]
-		out = append(out, publishing.Summary{ID: id, Name: nameOf(v.doc), UpdatedAt: v.at})
+		out = append(out, publishing.Summary{ID: id, Name: nameOf(v.doc), Visibility: sc.visibility, UpdatedAt: v.at})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
@@ -163,7 +245,7 @@ func (s *Store) ScenarioName(_ context.Context, id string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sc, ok := s.data[id]
-	if !ok || sc.takenDown {
+	if !ok || sc.takenDown || sc.visibility == publishing.Private {
 		return "", publishing.ErrNotFound
 	}
 	return nameOf(sc.versions[len(sc.versions)-1].doc), nil

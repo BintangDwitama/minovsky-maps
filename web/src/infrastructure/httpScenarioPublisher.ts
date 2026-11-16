@@ -5,7 +5,9 @@ import type {
   PublishedRead,
   ReportInput,
   ScenarioPublisher,
+  Visibility,
 } from '../application/ports';
+import { isVisibility } from '../application/visibility';
 import type { Scenario } from '../domain/scenario';
 import { ApiClient, type ApiClientOptions } from './apiClient';
 
@@ -27,14 +29,18 @@ export class HttpScenarioPublisher implements ScenarioPublisher {
     this.humanCheck = opts.humanCheck;
   }
 
-  publish(s: Scenario, opts?: CallOptions) {
+  publish(s: Scenario, visibility: Visibility, opts?: CallOptions) {
     return this.checked<{ id: string; updatedAt: string }>(
       'POST',
       '/scenarios',
-      { scenario: s },
+      { scenario: s, visibility },
       null,
       opts,
     );
+  }
+
+  setVisibility(id: string, visibility: Visibility) {
+    return this.api.call<object>('PATCH', `/scenarios/${encodeURIComponent(id)}`, { visibility });
   }
 
   update(id: string, editToken: string | null, s: Scenario, opts?: CallOptions) {
@@ -63,6 +69,7 @@ export class HttpScenarioPublisher implements ScenarioPublisher {
       updatedAt: string;
       owner?: { displayName: string } | null;
       isOwner?: boolean;
+      visibility?: string;
     }>('GET', `/scenarios/${encodeURIComponent(id)}`, undefined, { opts });
     if (!r.ok) return r;
     const v = r.value;
@@ -73,6 +80,7 @@ export class HttpScenarioPublisher implements ScenarioPublisher {
         updatedAt: v.updatedAt,
         owner: v.owner?.displayName ? { displayName: v.owner.displayName } : null,
         isOwner: v.isOwner === true,
+        visibility: isVisibility(v.visibility) ? v.visibility : null,
       },
     };
   }

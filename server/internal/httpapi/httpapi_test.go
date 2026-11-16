@@ -62,6 +62,21 @@ func newFixture(t *testing.T, opt httpapi.Options) *fixture {
 	return f
 }
 
+// newHandler builds a handler over the fixture's store and clock (so existing sessions stay valid).
+func newHandler(t *testing.T, f *fixture, opt httpapi.Options) http.Handler {
+	t.Helper()
+	v, err := scenario.NewValidator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	clock := func() time.Time { return *f.clock }
+	opt.Now = clock
+	if opt.Accounts == nil {
+		opt.Accounts = accounts.NewService(f.store, fakeGoogle{}, clock)
+	}
+	return httpapi.New(publishing.NewService(f.store, v), f.store, opt)
+}
+
 func (f *fixture) do(method, path, body string, headers ...string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	for i := 0; i+1 < len(headers); i += 2 {
@@ -113,7 +128,8 @@ func wrap(t *testing.T, file string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return `{"scenario":` + string(doc) + `}`
+	// shared by link, so anonymous reads work (new saves default to private)
+	return `{"visibility":"link","scenario":` + string(doc) + `}`
 }
 
 func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
@@ -186,7 +202,7 @@ func TestStatusCodes(t *testing.T) {
 		{"wrong token", f.do("PUT", "/api/scenarios/"+c.ID, good, "Authorization", "Bearer nope"), 403},
 		{"update unknown", f.do("PUT", "/api/scenarios/zzzzzzzz", good, as...), 404},
 		{"unknown route", f.do("GET", "/api/nope", ""), 404},
-		{"wrong method", f.do("PATCH", "/api/scenarios/"+c.ID, ""), 405},
+		{"wrong method", f.do("POST", "/api/scenarios/"+c.ID, ""), 405},
 	}
 	for _, tc := range cases {
 		if tc.rec.Code != tc.status {

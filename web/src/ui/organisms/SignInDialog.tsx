@@ -16,7 +16,7 @@ export interface SignInDialogProps {
 export function SignInDialog({ reason, available, onSignIn, onClose }: SignInDialogProps) {
   return (
     <DialogShell
-      title={available ? 'Sign in to publish' : 'Publishing unavailable'}
+      title={available ? 'Sign in to save online' : 'Saving online unavailable'}
       onClose={onClose}
       actions={
         available ? (
@@ -49,8 +49,8 @@ export function SignInDialog({ reason, available, onSignIn, onClose }: SignInDia
         </>
       ) : (
         <p>
-          Sign-in isn’t set up on this server, so scenarios can’t be published here. You can still
-          save them to a file or share them as a link.
+          Sign-in isn’t set up on this server, so scenarios can’t be saved online here. You can
+          still save them to a file or share them as a link.
         </p>
       )}
     </DialogShell>

@@ -10,7 +10,7 @@ describe('HttpScenarioPublisher', () => {
   it('publishes to /api/scenarios with the scenario wrapped', async () => {
     const fetchImpl = vi.fn(async () => json(201, { id: 'abcdEFG1', updatedAt: 'x' }));
     const p = new HttpScenarioPublisher({ fetchImpl });
-    const r = await p.publish(createScenario({ name: 'Mesa' }));
+    const r = await p.publish(createScenario({ name: 'Mesa' }), 'private');
     expect(r).toEqual({ ok: true, value: { id: 'abcdEFG1', updatedAt: 'x' } });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect(url).toBe('/api/scenarios');
@@ -18,6 +18,7 @@ describe('HttpScenarioPublisher', () => {
     expect(init.credentials).toBe('same-origin');
     expect((init.headers as Record<string, string>)['X-Minovsky-Client']).toBe('web');
     expect(JSON.parse(init.body as string).scenario.meta.name).toBe('Mesa');
+    expect(JSON.parse(init.body as string).visibility).toBe('private');
   });
 
   it('sends the edit token only in the Authorization header', async () => {
@@ -80,7 +81,7 @@ describe('HttpScenarioPublisher', () => {
       json(201, { id: 'abcdEFG1', editToken: 't', updatedAt: 'x' }),
     );
     const p = new HttpScenarioPublisher({ fetchImpl, humanCheck });
-    await p.publish(createScenario());
+    await p.publish(createScenario(), 'private');
     await p.update('abcdEFG1', 'secret', createScenario());
     await p.report({ scenarioId: 'abcdEFG1', reason: 'spam', details: '' });
     await p.fetch('abcdEFG1');
@@ -96,7 +97,7 @@ describe('HttpScenarioPublisher', () => {
     const rejected = new HttpScenarioPublisher({
       fetchImpl: vi.fn(async () => json(403, { code: 'bot-check', errors: ['Could not confirm'] })),
     });
-    expect(await rejected.publish(createScenario())).toEqual({
+    expect(await rejected.publish(createScenario(), 'private')).toEqual({
       ok: false,
       failure: 'bot',
       errors: ['Could not confirm'],
@@ -106,7 +107,7 @@ describe('HttpScenarioPublisher', () => {
       fetchImpl,
       humanCheck: { token: () => Promise.reject(new Error('blocked')) },
     });
-    const r = await blocked.publish(createScenario());
+    const r = await blocked.publish(createScenario(), 'private');
     expect(r).toMatchObject({ ok: false, failure: 'bot' });
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -136,7 +137,13 @@ describe('HttpScenarioPublisher', () => {
     expect((init.headers as Record<string, string>).Authorization).toBeUndefined();
     expect(await p.fetch('abcdEFG1')).toEqual({
       ok: true,
-      value: { scenario: {}, updatedAt: 'x', owner: { displayName: 'Bintang' }, isOwner: true },
+      value: {
+        scenario: {},
+        updatedAt: 'x',
+        owner: { displayName: 'Bintang' },
+        isOwner: true,
+        visibility: null,
+      },
     });
     const get = (fetchImpl.mock.calls[1] as unknown as [string, RequestInit])[1];
     expect((get.headers as Record<string, string>)['X-Minovsky-Client']).toBeUndefined();
@@ -157,7 +164,7 @@ describe('HttpScenarioPublisher', () => {
     const p = new HttpScenarioPublisher({
       fetchImpl: vi.fn(async () => json(status, { code, errors: ['x'] })),
     });
-    expect(await p.publish(createScenario())).toMatchObject({ ok: false, failure });
+    expect(await p.publish(createScenario(), 'private')).toMatchObject({ ok: false, failure });
   });
 
   it('deletes with DELETE and accepts an empty 204', async () => {
@@ -166,6 +173,27 @@ describe('HttpScenarioPublisher', () => {
     expect(r).toEqual({ ok: true, value: {} });
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
     expect([url, init.method]).toEqual(['/api/scenarios/abcdEFG1', 'DELETE']);
+  });
+
+  it('changes visibility with PATCH and reads it for the owner', async () => {
+    const fetchImpl = vi.fn(async () =>
+      json(200, {
+        id: 'abcdEFG1',
+        scenario: {},
+        updatedAt: 'x',
+        isOwner: true,
+        visibility: 'public',
+      }),
+    );
+    const p = new HttpScenarioPublisher({ fetchImpl });
+    await p.setVisibility('abcdEFG1', 'link');
+    const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit];
+    expect([url, init.method, init.body]).toEqual([
+      '/api/scenarios/abcdEFG1',
+      'PATCH',
+      '{"visibility":"link"}',
+    ]);
+    expect(await p.fetch('abcdEFG1')).toMatchObject({ value: { visibility: 'public' } });
   });
 
   it('wake never throws', () => {

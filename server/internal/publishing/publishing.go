@@ -1,10 +1,13 @@
-// Package publishing is the use-case layer: publish, read, update, delete and claim scenarios.
-// It owns ids, ownership rules, legacy edit tokens and validation, and depends only on the
-// Repository and Validator interfaces it declares (implemented by internal/store/* and
-// internal/scenario).
+// Package publishing is the use-case layer: publish, read, update, delete, claim, change the
+// visibility of and browse scenarios. It owns ids, ownership and visibility rules, legacy edit
+// tokens and validation, and depends only on the Repository and Validator interfaces it declares
+// (implemented by internal/store/* and internal/scenario).
 //
 // Scenarios published since accounts exist are owned by an account (OwnerID). Older scenarios
 // carry an edit-token hash instead ("legacy") until an account claims them with that token.
+//
+// Visibility: private scenarios exist only for their owner. Every read goes through lookup with
+// the viewer's account, which hides them from everyone else exactly like an unknown id.
 package publishing
 
 import (
@@ -16,10 +19,12 @@ import (
 	"errors"
 	"regexp"
 	"time"
+
+	"github.com/BintangDwitama/minovsky-maps/server/internal/scenario"
 )
 
 var (
-	// ErrNotFound: unknown or taken-down scenario.
+	// ErrNotFound: unknown, taken-down, or private-and-not-yours scenario.
 	ErrNotFound = errors.New("scenario not found")
 	// ErrSignedOut: the action needs a signed-in account.
 	ErrSignedOut = errors.New("sign-in required")
@@ -31,6 +36,8 @@ var (
 	ErrForbidden = errors.New("edit token does not match")
 	// ErrIDTaken is returned by a Repository when a new id already exists.
 	ErrIDTaken = errors.New("id already taken")
+	// ErrInvalidVisibility: not one of private, link, public.
+	ErrInvalidVisibility = errors.New("visibility must be private, link or public")
 )
 
 // Removal reasons recorded with a takedown.
@@ -40,12 +47,36 @@ const (
 	RemovedByModeration = "moderation"
 )
 
+// Visibility is who can see a scenario.
+type Visibility string
+
+const (
+	// Private: only the owner.
+	Private Visibility = "private"
+	// Link: anyone with the link; not listed.
+	Link Visibility = "link"
+	// Public: anyone, and listed in Browse.
+	Public Visibility = "public"
+)
+
+// ParseVisibility accepts "" (meaning def) and the three values.
+func ParseVisibility(s string, def Visibility) (Visibility, error) {
+	switch Visibility(s) {
+	case "":
+		return def, nil
+	case Private, Link, Public:
+		return Visibility(s), nil
+	}
+	return "", ErrInvalidVisibility
+}
+
 // Record is what a Repository returns for the latest version of a scenario.
 type Record struct {
 	ID            string
 	EditTokenHash []byte // nil for owned scenarios
 	OwnerID       int64  // 0 for unclaimed legacy scenarios
 	OwnerName     string // owner's display name (empty when unowned)
+	Visibility    Visibility
 	Doc           json.RawMessage
 	UpdatedAt     time.Time
 	TakenDown     bool
@@ -53,27 +84,32 @@ type Record struct {
 
 // Summary is one entry of an owner's list.
 type Summary struct {
-	ID        string
-	Name      string
-	UpdatedAt time.Time
+	ID         string
+	Name       string
+	Visibility Visibility
+	UpdatedAt  time.Time
 }
 
 // Repository stores scenarios and their immutable versions.
 type Repository interface {
-	// Create stores a new scenario with its first version; ErrIDTaken if the id exists.
-	// Exactly one of ownerID (non-zero) and tokenHash (legacy) is set.
-	Create(ctx context.Context, id string, ownerID int64, tokenHash []byte, doc json.RawMessage, schemaVersion int) (time.Time, error)
+	// Create stores a new scenario with its first version and facets; ErrIDTaken if the id
+	// exists. Exactly one of ownerID (non-zero) and tokenHash (legacy) is set.
+	Create(ctx context.Context, id string, ownerID int64, tokenHash []byte, v Visibility, f scenario.Facets, doc json.RawMessage, schemaVersion int) (time.Time, error)
 	// Latest returns the newest version; ErrNotFound if the id does not exist.
 	Latest(ctx context.Context, id string) (Record, error)
-	// AddVersion appends a version to an existing scenario.
-	AddVersion(ctx context.Context, id string, doc json.RawMessage, schemaVersion int) (time.Time, error)
+	// AddVersion appends a version to an existing scenario and refreshes its facets.
+	AddVersion(ctx context.Context, id string, f scenario.Facets, doc json.RawMessage, schemaVersion int) (time.Time, error)
 	// ListOwned returns the owner's scenarios that are not taken down, newest update first.
 	ListOwned(ctx context.Context, ownerID int64) ([]Summary, error)
 	// Claim makes ownerID the owner of an unclaimed, live scenario whose token hash matches and
-	// clears the hash; it reports whether it did.
+	// clears the hash; it reports whether it did. Visibility is unchanged.
 	Claim(ctx context.Context, id string, tokenHash []byte, ownerID int64) (bool, error)
 	// Remove takes a scenario down, recording why.
 	Remove(ctx context.Context, id, reason string) error
+	// SetVisibility changes who can see a scenario; becoming public sets its listing time.
+	SetVisibility(ctx context.Context, id string, v Visibility) error
+	// Browse lists public, live scenarios with facets matching q (see browse.go).
+	Browse(ctx context.Context, q BrowseQuery) ([]BrowseItem, error)
 }
 
 // Validator checks a document and returns its schemaVersion (implemented by scenario.Validator).
@@ -93,19 +129,21 @@ func NewService(repo Repository, v Validator) *Service {
 	return &Service{repo: repo, validate: v, random: rand.Read}
 }
 
-// Published is a scenario as read by anyone.
+// Published is a scenario as read by one viewer.
 type Published struct {
-	ID        string
-	Doc       json.RawMessage
-	UpdatedAt time.Time
-	OwnerID   int64  // 0 when unowned; never sent to clients
-	OwnerName string // the verified author shown on sheets
+	ID         string
+	Doc        json.RawMessage
+	UpdatedAt  time.Time
+	OwnerID    int64      // 0 when unowned; never sent to clients
+	OwnerName  string     // the verified author shown on sheets
+	Visibility Visibility // send only to the owner
 }
 
 // Created is the result of a publish.
 type Created struct {
-	ID        string
-	UpdatedAt time.Time
+	ID         string
+	Visibility Visibility
+	UpdatedAt  time.Time
 }
 
 // Credential is who is asking to change a scenario: a signed-in account, a legacy edit token, or both.
@@ -133,12 +171,16 @@ var idPattern = regexp.MustCompile(`^[A-Za-z0-9]{8}$`)
 // ValidID reports whether s looks like a scenario id (cheap pre-check before hitting storage).
 func ValidID(s string) bool { return idPattern.MatchString(s) }
 
-// Publish validates and stores a new scenario owned by ownerID.
-func (s *Service) Publish(ctx context.Context, ownerID int64, doc []byte) (Created, error) {
+// Publish validates and stores a new scenario owned by ownerID with visibility v ("" = private).
+func (s *Service) Publish(ctx context.Context, ownerID int64, v Visibility, doc []byte) (Created, error) {
 	if ownerID == 0 {
 		return Created{}, ErrSignedOut
 	}
-	version, err := s.validate.Validate(doc)
+	v, err := ParseVisibility(string(v), Private)
+	if err != nil {
+		return Created{}, err
+	}
+	version, facets, err := s.check(doc)
 	if err != nil {
 		return Created{}, err
 	}
@@ -147,41 +189,45 @@ func (s *Service) Publish(ctx context.Context, ownerID int64, doc []byte) (Creat
 		if err != nil {
 			return Created{}, err
 		}
-		at, err := s.repo.Create(ctx, id, ownerID, nil, doc, version)
+		at, err := s.repo.Create(ctx, id, ownerID, nil, v, facets, doc, version)
 		if errors.Is(err, ErrIDTaken) {
 			continue
 		}
 		if err != nil {
 			return Created{}, err
 		}
-		return Created{ID: id, UpdatedAt: at}, nil
+		return Created{ID: id, Visibility: v, UpdatedAt: at}, nil
 	}
 	return Created{}, errors.New("could not allocate a scenario id")
 }
 
-// Get returns the latest version of a published scenario.
-func (s *Service) Get(ctx context.Context, id string) (Published, error) {
-	rec, err := s.lookup(ctx, id)
+// Get returns the latest version of a scenario as seen by viewer (0 = signed out).
+func (s *Service) Get(ctx context.Context, id string, viewer int64) (Published, error) {
+	rec, err := s.lookup(ctx, id, viewer)
 	if err != nil {
 		return Published{}, err
 	}
-	return Published{ID: rec.ID, Doc: rec.Doc, UpdatedAt: rec.UpdatedAt, OwnerID: rec.OwnerID, OwnerName: rec.OwnerName}, nil
+	return Published{
+		ID: rec.ID, Doc: rec.Doc, UpdatedAt: rec.UpdatedAt,
+		OwnerID: rec.OwnerID, OwnerName: rec.OwnerName, Visibility: rec.Visibility,
+	}, nil
 }
 
 // Update stores a new version for the owner, or with the right token for an unclaimed scenario.
+// Visibility is unchanged.
 func (s *Service) Update(ctx context.Context, id string, c Credential, doc []byte) (time.Time, error) {
-	rec, err := s.lookup(ctx, id)
+	rec, err := s.lookup(ctx, id, c.OwnerID)
 	if err != nil {
 		return time.Time{}, err
 	}
 	if err := authorize(rec, c); err != nil {
 		return time.Time{}, err
 	}
-	version, err := s.validate.Validate(doc)
+	version, facets, err := s.check(doc)
 	if err != nil {
 		return time.Time{}, err
 	}
-	return s.repo.AddVersion(ctx, id, doc, version)
+	return s.repo.AddVersion(ctx, id, facets, doc, version)
 }
 
 func authorize(rec Record, c Credential) error {
@@ -211,17 +257,37 @@ func authorize(rec Record, c Credential) error {
 
 // Delete takes down a scenario at its owner's request.
 func (s *Service) Delete(ctx context.Context, id string, ownerID int64) error {
-	if ownerID == 0 {
-		return ErrSignedOut
-	}
-	rec, err := s.lookup(ctx, id)
-	if err != nil {
+	if _, err := s.owned(ctx, id, ownerID); err != nil {
 		return err
 	}
-	if rec.OwnerID != ownerID {
-		return ErrNotOwner
-	}
 	return s.repo.Remove(ctx, id, RemovedByOwner)
+}
+
+// SetVisibility changes who can see a scenario; owner only. The id never changes.
+func (s *Service) SetVisibility(ctx context.Context, id string, ownerID int64, v Visibility) error {
+	v, err := ParseVisibility(string(v), "")
+	if err != nil || v == "" {
+		return ErrInvalidVisibility
+	}
+	if _, err := s.owned(ctx, id, ownerID); err != nil {
+		return err
+	}
+	return s.repo.SetVisibility(ctx, id, v)
+}
+
+// owned looks a scenario up for a change that only its owner may make.
+func (s *Service) owned(ctx context.Context, id string, ownerID int64) (Record, error) {
+	if ownerID == 0 {
+		return Record{}, ErrSignedOut
+	}
+	rec, err := s.lookup(ctx, id, ownerID)
+	if err != nil {
+		return Record{}, err
+	}
+	if rec.OwnerID != ownerID {
+		return Record{}, ErrNotOwner
+	}
+	return rec, nil
 }
 
 // Claim gives ownerID every unclaimed scenario among items whose token matches; it returns the
@@ -254,7 +320,9 @@ func (s *Service) ListOwned(ctx context.Context, ownerID int64) ([]Summary, erro
 	return s.repo.ListOwned(ctx, ownerID)
 }
 
-func (s *Service) lookup(ctx context.Context, id string) (Record, error) {
+// lookup is the one gate every read and change goes through: unknown, taken-down, and private
+// scenarios of someone else all read as ErrNotFound.
+func (s *Service) lookup(ctx context.Context, id string, viewer int64) (Record, error) {
 	if !ValidID(id) {
 		return Record{}, ErrNotFound
 	}
@@ -262,10 +330,19 @@ func (s *Service) lookup(ctx context.Context, id string) (Record, error) {
 	if err != nil {
 		return Record{}, err
 	}
-	if rec.TakenDown {
+	if rec.TakenDown || (rec.Visibility == Private && (viewer == 0 || viewer != rec.OwnerID)) {
 		return Record{}, ErrNotFound
 	}
 	return rec, nil
+}
+
+func (s *Service) check(doc []byte) (int, scenario.Facets, error) {
+	version, err := s.validate.Validate(doc)
+	if err != nil {
+		return 0, scenario.Facets{}, err
+	}
+	facets, err := scenario.ComputeFacets(doc)
+	return version, facets, err
 }
 
 func (s *Service) newID() (string, error) {

@@ -16,7 +16,12 @@ export type Route =
   | { page: 'editor'; importLink: string | null; publishedId: string | null }
   | { page: 'sheet'; link: string }
   | { page: 'published'; id: string; editToken: string | null }
-  | { page: 'privacy' };
+  | { page: 'privacy' }
+  | { page: 'browse' };
+
+/** Real path of the Browse page (like `/s/<id>`, served by the SPA fallback). */
+export const BROWSE_PATH = '/browse';
+const BROWSE_RE = /^\/browse\/?$/;
 
 /** Route (after `#`) of the privacy note. */
 export const PRIVACY_ROUTE = '/privacy';
@@ -24,6 +29,7 @@ export const PRIVACY_ROUTE = '/privacy';
 const PUBLISHED_RE = /^\/s\/([A-Za-z0-9]{8})\/?$/;
 
 export const parseRoute = (pathname: string, hash: string): Route => {
+  if (BROWSE_RE.test(pathname)) return { page: 'browse' };
   const published = PUBLISHED_RE.exec(pathname);
   if (published) {
     const token = /^#edit=([A-Za-z0-9_-]+)$/.exec(hash)?.[1] ?? null;

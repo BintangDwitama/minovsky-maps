@@ -88,6 +88,7 @@ func run(log *slog.Logger) error {
 	}
 
 	var repo repository
+	var backfill func(context.Context, *slog.Logger)
 	if url := os.Getenv("DATABASE_URL"); url != "" {
 		connectCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		store, err := postgres.Open(connectCtx, url)
@@ -97,6 +98,7 @@ func run(log *slog.Logger) error {
 		}
 		defer store.Close()
 		repo = store
+		backfill = store.BackfillFacets
 		log.Info("using postgres store")
 	} else {
 		repo = memory.New()
@@ -162,6 +164,11 @@ func run(log *slog.Logger) error {
 	}
 
 	errc := make(chan error, 1)
+	// scenarios saved before Browse get their searchable facts in the background
+	if backfill != nil {
+		go backfill(ctx, log)
+	}
+
 	go func() {
 		log.Info("listening", "addr", srv.Addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

@@ -1,12 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ApiResult, OwnedScenario, Publication } from '../../application/ports';
+import type { ApiResult, OwnedScenario, Publication, Visibility } from '../../application/ports';
+import { VISIBILITIES, VISIBILITY_LABEL } from '../../application/visibility';
 import { Button } from '../atoms/Button';
+import { Icon } from '../atoms/Icon';
+import { Select } from '../atoms/inputs';
+import { VISIBILITY_ICON } from './VisibilityPicker';
 import { Hint } from '../atoms/Text';
 import { DialogShell, ErrorList } from './dialogs';
 
 interface Row {
   readonly id: string;
   readonly name: string;
+  /** Account scenarios only. */
+  readonly visibility?: Visibility;
 }
 
 export type MyScenariosSource =
@@ -15,6 +21,10 @@ export type MyScenariosSource =
       kind: 'account';
       load(): Promise<ApiResult<OwnedScenario[]>>;
       onDelete(id: string): Promise<{ ok: true } | { ok: false; errors: string[] }>;
+      onVisibility(
+        id: string,
+        v: Visibility,
+      ): Promise<{ ok: true } | { ok: false; errors: string[] }>;
     }
   /** Signed out: legacy scenarios this browser holds edit tokens for. */
   | {
@@ -70,6 +80,24 @@ export function MyScenariosDialog({
     source.kind === 'browser' ? { kind: 'ready', rows: source.scenarios } : state;
 
   const account = source.kind === 'account';
+  const setRowVisibility = (id: string, v: Visibility) =>
+    setState((s) =>
+      s.kind === 'ready'
+        ? { ...s, rows: s.rows.map((x) => (x.id === id ? { ...x, visibility: v } : x)) }
+        : s,
+    );
+  const changeVisibility = async (row: Row, v: Visibility) => {
+    if (source.kind !== 'account' || !row.visibility) return;
+    const before = row.visibility;
+    setRowVisibility(row.id, v);
+    const r = await source.onVisibility(row.id, v);
+    if (r.ok) {
+      setDeleteErrors(null);
+    } else {
+      setRowVisibility(row.id, before);
+      setDeleteErrors(r.errors);
+    }
+  };
   const remove = async (id: string) => {
     setConfirming(null);
     if (source.kind === 'browser') {
@@ -142,8 +170,31 @@ export function MyScenariosDialog({
             const label = p.name || 'Untitled scenario';
             return (
               <li key={p.id} className="bg-panel-2 p-2.5 chamfer-sm">
-                <div className="font-semibold break-words">{label}</div>
+                <div className="flex items-start gap-2">
+                  <div className="min-w-0 flex-1 font-semibold break-words">{label}</div>
+                  {p.visibility ? (
+                    <span
+                      className="inline-flex flex-none items-center gap-1 text-xs text-muted"
+                      data-testid="visibility-badge"
+                    >
+                      <Icon name={VISIBILITY_ICON[p.visibility]} />
+                      {VISIBILITY_LABEL[p.visibility]}
+                    </span>
+                  ) : null}
+                </div>
                 <div className="mb-2 font-mono text-xs break-all text-muted">{link}</div>
+                {p.visibility ? (
+                  <label className="mb-2 flex flex-wrap items-center gap-2 text-ui">
+                    <span className="text-muted">Who can see it</span>
+                    <Select
+                      className="w-auto"
+                      value={p.visibility}
+                      aria-label={`Who can see ${label}`}
+                      options={VISIBILITIES.map((v) => ({ value: v, label: VISIBILITY_LABEL[v] }))}
+                      onValueChange={(v) => void changeVisibility(p, v)}
+                    />
+                  </label>
+                ) : null}
                 {confirming === p.id ? (
                   <div role="alert" className="text-ui">
                     <p className="mb-2">

@@ -237,7 +237,7 @@ func (a *api) myScenarios(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(list))
 	for _, s := range list {
-		out = append(out, map[string]any{"id": s.ID, "name": s.Name, "updatedAt": s.UpdatedAt.UTC()})
+		out = append(out, map[string]any{"id": s.ID, "name": s.Name, "visibility": s.Visibility, "updatedAt": s.UpdatedAt.UTC()})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"scenarios": out})
 }

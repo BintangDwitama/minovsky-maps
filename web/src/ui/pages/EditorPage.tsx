@@ -3,6 +3,7 @@ import { removeComponentCmd, resizeBoardCmd, rotateCarrierCmd } from '../../appl
 import { EditorSession } from '../../application/editorSession';
 import {
   canUpdate,
+  changeVisibility,
   deletePublished,
   editPublished,
   openPublished,
@@ -43,6 +44,8 @@ import { kindDef } from '../../domain/components/registry';
 import { AnnouncerProvider, useAnnouncer } from '../hooks/useAnnouncer';
 import { useAccount } from '../hooks/useAccount';
 import { SignInDialog } from '../organisms/SignInDialog';
+import { SaveOnlineDialog, type SavePhase } from '../organisms/SaveOnlineDialog';
+import type { Visibility } from '../../application/ports';
 import { useHistory } from '../hooks/useHistory';
 import { COMPACT_QUERY, useMediaQuery } from '../hooks/useMediaQuery';
 import { SelectionBar } from '../organisms/SelectionBar';
@@ -52,9 +55,7 @@ import {
   ConfirmDialog,
   ErrorList,
   NewScenarioDialog,
-  PublishDialog,
   ShareLinkDialog,
-  type PublishPhase,
 } from '../organisms/dialogs';
 import { PUBLISH_FAILURE } from '../publishMessages';
 import { MyScenariosDialog } from '../organisms/MyScenariosDialog';
@@ -126,7 +127,7 @@ type DialogState =
   | { kind: 'draft'; draft: Draft }
   | { kind: 'share'; link: string; copied: boolean; long: boolean }
   | { kind: 'replace-with-shared'; scenario: Scenario; apply(): void; back(): void }
-  | { kind: 'publish'; mode: 'publish' | 'update'; phase: PublishPhase }
+  | { kind: 'publish'; mode: 'save' | 'update'; phase: SavePhase; id?: string }
   | { kind: 'busy'; title: string; slow: boolean }
   | { kind: 'my-scenarios'; revision: number }
   | { kind: 'sign-in' }
@@ -247,22 +248,27 @@ function Editor({
           ? { ...d, slow: true }
           : d,
     );
-  const runPublish = async (mode: 'publish' | 'update') => {
+  const runPublish = async (mode: 'save' | 'update', visibility?: Visibility) => {
     setDialog({ kind: 'publish', mode, phase: { kind: 'working', slow: false } });
     const r =
-      mode === 'publish'
-        ? await publishScenario(session, publisher, { onSlow: markSlow })
+      mode === 'save'
+        ? await publishScenario(session, publisher, visibility, { onSlow: markSlow })
         : await updatePublished(session, publisher, publications, { onSlow: markSlow });
     if (!r.ok) {
       publishFailed(r);
       return;
     }
     const link = shortLink(appAddress(), r.publication.id);
-    const copied = mode === 'publish' ? await clipboard.writeText(link) : false;
     setDialog({
       kind: 'publish',
       mode,
-      phase: { kind: 'done', shortLink: link, copied },
+      id: r.publication.id,
+      // a fresh save shows its visibility so it can be shared right away
+      phase: {
+        kind: 'done',
+        shortLink: link,
+        visibility: mode === 'save' ? (visibility ?? null) : null,
+      },
     });
   };
   const onPublish = () => {
@@ -274,7 +280,7 @@ function Editor({
     }
     if (canUpdate(session, publications)) void runPublish('update');
     else if (!account.account) setDialog({ kind: 'sign-in' });
-    else setDialog({ kind: 'publish', mode: 'publish', phase: { kind: 'confirm' } });
+    else setDialog({ kind: 'publish', mode: 'save', phase: { kind: 'confirm' } });
   };
 
   /* ---- start a sleeping API early, so publishing is quick ---- */
@@ -573,11 +579,17 @@ function Editor({
           ) : null}
 
           {dialog.kind === 'publish' ? (
-            <PublishDialog
+            <SaveOnlineDialog
               mode={dialog.mode}
               name={session.scenario.meta.name}
               phase={dialog.phase}
-              onConfirm={() => void runPublish('publish')}
+              onConfirm={(v) => void runPublish('save', v)}
+              onVisibilityChange={async (v) => {
+                if (!dialog.id) return 'Not saved yet.';
+                const r = await changeVisibility(publisher, dialog.id, v);
+                return r.ok ? null : r.errors.join(' ');
+              }}
+              onCopy={(link) => clipboard.writeText(link)}
               onClose={close}
             />
           ) : null}
@@ -590,6 +602,7 @@ function Editor({
                       kind: 'account',
                       load: () => account.service.listOwned(),
                       onDelete: (id) => deletePublished(session, publisher, id),
+                      onVisibility: (id, v) => changeVisibility(publisher, id, v),
                     }
                   : {
                       kind: 'browser',
@@ -618,7 +631,7 @@ function Editor({
 
           {dialog.kind === 'sign-in' ? (
             <SignInDialog
-              reason="Publishing gives your scenario a short link that you can keep updating from any device. Sign in with your Google account to publish."
+              reason="Saving online keeps your scenario in your account, so you can open and update it from any device, and share it when you want to. Sign in with your Google account to save online."
               available={account.available}
               onSignIn={() => {
                 session.commit();

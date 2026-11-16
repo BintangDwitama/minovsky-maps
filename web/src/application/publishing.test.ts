@@ -10,9 +10,11 @@ import type {
   PublicationStore,
   PublishedRead,
   ScenarioPublisher,
+  Visibility,
 } from './ports';
 import {
   canUpdate,
+  changeVisibility,
   deletePublished,
   editPublished,
   openPublished,
@@ -35,17 +37,30 @@ const sample = (): Scenario => {
  * scenarios are changed by their owner, legacy ones with their edit token.
  */
 class FakeApi implements ScenarioPublisher {
-  docs = new Map<string, { owner: number | null; token: string | null; versions: Scenario[] }>();
+  docs = new Map<
+    string,
+    { owner: number | null; token: string | null; versions: Scenario[]; visibility?: Visibility }
+  >();
   next = 1;
   down = false;
   /** The signed-in account (0 = signed out). */
   me = 7;
-  async publish(s: Scenario): Promise<ApiResult<{ id: string; updatedAt: string }>> {
+  async publish(
+    s: Scenario,
+    visibility: Visibility,
+  ): Promise<ApiResult<{ id: string; updatedAt: string }>> {
     if (this.down) return { ok: false, failure: 'unavailable', errors: ['down'] };
     if (!this.me) return { ok: false, failure: 'signed-out', errors: ['sign in'] };
     const id = `id${String(this.next++).padStart(6, '0')}`;
-    this.docs.set(id, { owner: this.me, token: null, versions: [s] });
+    this.docs.set(id, { owner: this.me, token: null, versions: [s], visibility });
     return { ok: true, value: { id, updatedAt: 't' } };
+  }
+  async setVisibility(id: string, visibility: Visibility): Promise<ApiResult<object>> {
+    const d = this.docs.get(id);
+    if (!d) return { ok: false, failure: 'not-found', errors: ['nf'] };
+    if (d.owner !== this.me) return { ok: false, failure: 'not-owner', errors: ['no'] };
+    d.visibility = visibility;
+    return { ok: true, value: {} };
   }
   async update(
     id: string,
@@ -65,14 +80,17 @@ class FakeApi implements ScenarioPublisher {
   }
   async fetch(id: string): Promise<ApiResult<PublishedRead>> {
     const d = this.docs.get(id);
-    if (!d) return { ok: false, failure: 'not-found', errors: ['nf'] };
+    const isOwner = !!d && d.owner !== null && d.owner === this.me;
+    if (!d || (d.visibility === 'private' && !isOwner))
+      return { ok: false, failure: 'not-found', errors: ['nf'] };
     return {
       ok: true,
       value: {
         scenario: JSON.parse(JSON.stringify(d.versions.at(-1))),
         updatedAt: 't',
         owner: d.owner !== null ? { displayName: `Owner ${d.owner}` } : null,
-        isOwner: d.owner !== null && d.owner === this.me,
+        isOwner,
+        visibility: isOwner ? (d.visibility ?? 'link') : null,
       },
     };
   }
@@ -116,6 +134,27 @@ describe('publishing use cases', () => {
     expect(session.getSnapshot().publication).toEqual({ id: r.publication.id, owned: true });
     expect(store.list()).toHaveLength(0);
     expect(canUpdate(session, store)).toBe(true);
+  });
+
+  it('saves online as private by default; the owner can share it later on the same link', async () => {
+    const api = new FakeApi();
+    const r = await publishScenario(new EditorSession(sample()), api);
+    if (!r.ok) throw new Error();
+    const id = r.publication.id;
+    expect(api.docs.get(id)?.visibility).toBe('private');
+    expect(await openPublished(id, api)).toMatchObject({ ok: true, visibility: 'private' });
+    api.me = 0;
+    expect(await openPublished(id, api)).toMatchObject({ ok: false, failure: 'not-found' });
+    api.me = 7;
+    expect((await changeVisibility(api, id, 'link')).ok).toBe(true);
+    api.me = 0;
+    expect(await openPublished(id, api)).toMatchObject({ ok: true, visibility: null });
+  });
+
+  it('saves with the chosen visibility', async () => {
+    const api = new FakeApi();
+    const r = await publishScenario(new EditorSession(sample()), api, 'public');
+    expect(r.ok && api.docs.get(r.publication.id)?.visibility).toBe('public');
   });
 
   it('reports signed-out instead of publishing', async () => {
@@ -206,7 +245,7 @@ describe('publishing use cases', () => {
 
   it('gives the verified owner name of owned scenarios', async () => {
     const api = new FakeApi();
-    const pub = await publishScenario(new EditorSession(sample()), api);
+    const pub = await publishScenario(new EditorSession(sample()), api, 'link');
     if (!pub.ok) throw new Error();
     api.me = 0;
     const r = await openPublished(pub.publication.id, api);

@@ -43,6 +43,21 @@ func rename(t *testing.T, doc []byte, name string) []byte {
 	return out
 }
 
+// renameWith renames a document and lets the test change anything else in it.
+func renameWith(t *testing.T, doc []byte, name string, edit func(map[string]any)) []byte {
+	t.Helper()
+	var m map[string]any
+	if err := json.Unmarshal(doc, &m); err != nil {
+		t.Fatal(err)
+	}
+	m["meta"].(map[string]any)["name"] = name
+	if edit != nil {
+		edit(m)
+	}
+	out, _ := json.Marshal(m)
+	return out
+}
+
 func nameOf(t *testing.T, doc []byte) string {
 	t.Helper()
 	var m struct {
@@ -59,7 +74,7 @@ const alice, bob int64 = 1, 2
 // legacy stores a pre-accounts scenario with an edit token, as old clients created them.
 func legacy(t *testing.T, store *memory.Store, id, token string, doc []byte) {
 	t.Helper()
-	if _, err := store.Create(context.Background(), id, 0, publishing.HashToken(token), doc, 1); err != nil {
+	if _, err := store.Create(context.Background(), id, 0, publishing.HashToken(token), publishing.Link, scenario.Facets{}, doc, 1); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -68,14 +83,14 @@ func TestPublishGetUpdate(t *testing.T) {
 	ctx := context.Background()
 	svc, store := setup(t)
 
-	created, err := svc.Publish(ctx, alice, example(t, "sample-mesa.scenario.json"))
+	created, err := svc.Publish(ctx, alice, publishing.Link, example(t, "sample-mesa.scenario.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !publishing.ValidID(created.ID) {
 		t.Fatalf("bad id %q", created.ID)
 	}
-	got, err := svc.Get(ctx, created.ID)
+	got, err := svc.Get(ctx, created.ID, 0)
 	if err != nil || nameOf(t, got.Doc) != "Sample: Desert Mesa" || got.OwnerID != alice {
 		t.Fatalf("get: %v %+v", err, got)
 	}
@@ -87,7 +102,7 @@ func TestPublishGetUpdate(t *testing.T) {
 	if _, err := svc.Update(ctx, created.ID, owner, rename(t, got.Doc, "Desert Mesa v3")); err != nil {
 		t.Fatal(err)
 	}
-	latest, _ := svc.Get(ctx, created.ID)
+	latest, _ := svc.Get(ctx, created.ID, 0)
 	if nameOf(t, latest.Doc) != "Desert Mesa v3" {
 		t.Fatalf("latest is %s", nameOf(t, latest.Doc))
 	}
@@ -98,7 +113,7 @@ func TestPublishGetUpdate(t *testing.T) {
 
 func TestPublishNeedsAnAccount(t *testing.T) {
 	svc, _ := setup(t)
-	if _, err := svc.Publish(context.Background(), 0, example(t, "minimal.scenario.json")); !errors.Is(err, publishing.ErrSignedOut) {
+	if _, err := svc.Publish(context.Background(), 0, "", example(t, "minimal.scenario.json")); !errors.Is(err, publishing.ErrSignedOut) {
 		t.Fatalf("got %v", err)
 	}
 }
@@ -107,7 +122,7 @@ func TestOnlyTheOwnerUpdatesAndDeletes(t *testing.T) {
 	ctx := context.Background()
 	svc, store := setup(t)
 	doc := example(t, "minimal.scenario.json")
-	c, _ := svc.Publish(ctx, alice, doc)
+	c, _ := svc.Publish(ctx, alice, publishing.Link, doc)
 
 	cases := []struct {
 		name string
@@ -135,7 +150,7 @@ func TestOnlyTheOwnerUpdatesAndDeletes(t *testing.T) {
 	if err := svc.Delete(ctx, c.ID, alice); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.Get(ctx, c.ID); !errors.Is(err, publishing.ErrNotFound) {
+	if _, err := svc.Get(ctx, c.ID, 0); !errors.Is(err, publishing.ErrNotFound) {
 		t.Fatalf("deleted scenario still readable: %v", err)
 	}
 	if store.RemovedReason(c.ID) != publishing.RemovedByOwner {
@@ -207,9 +222,9 @@ func TestClaim(t *testing.T) {
 func TestListOwned(t *testing.T) {
 	ctx := context.Background()
 	svc, _ := setup(t)
-	a, _ := svc.Publish(ctx, alice, rename(t, example(t, "minimal.scenario.json"), "First"))
-	b, _ := svc.Publish(ctx, alice, rename(t, example(t, "minimal.scenario.json"), "Second"))
-	_, _ = svc.Publish(ctx, bob, example(t, "minimal.scenario.json"))
+	a, _ := svc.Publish(ctx, alice, publishing.Link, rename(t, example(t, "minimal.scenario.json"), "First"))
+	b, _ := svc.Publish(ctx, alice, publishing.Link, rename(t, example(t, "minimal.scenario.json"), "Second"))
+	_, _ = svc.Publish(ctx, bob, publishing.Link, example(t, "minimal.scenario.json"))
 	_ = svc.Delete(ctx, a.ID, alice)
 
 	list, err := svc.ListOwned(ctx, alice)
@@ -225,13 +240,13 @@ func TestInvalidDocumentsAreRejected(t *testing.T) {
 	ctx := context.Background()
 	svc, store := setup(t)
 	bad, _ := fs.ReadFile(schema.Examples, "examples/invalid/off-board-carrier.json")
-	_, err := svc.Publish(ctx, alice, bad)
+	_, err := svc.Publish(ctx, alice, publishing.Link, bad)
 	var inv *scenario.Invalid
 	if !errors.As(err, &inv) {
 		t.Fatalf("expected *scenario.Invalid, got %v", err)
 	}
 
-	created, _ := svc.Publish(ctx, alice, example(t, "minimal.scenario.json"))
+	created, _ := svc.Publish(ctx, alice, publishing.Link, example(t, "minimal.scenario.json"))
 	future, _ := fs.ReadFile(schema.Examples, "examples/invalid/future-version.json")
 	if _, err := svc.Update(ctx, created.ID, publishing.Credential{OwnerID: alice}, future); !errors.As(err, &inv) {
 		t.Fatalf("unsupported schemaVersion should be invalid, got %v", err)
@@ -245,13 +260,13 @@ func TestNotFoundAndTakedown(t *testing.T) {
 	ctx := context.Background()
 	svc, store := setup(t)
 	for _, id := range []string{"zzzzzzzz", "short", "../etc/x", ""} {
-		if _, err := svc.Get(ctx, id); !errors.Is(err, publishing.ErrNotFound) {
+		if _, err := svc.Get(ctx, id, 0); !errors.Is(err, publishing.ErrNotFound) {
 			t.Fatalf("%q: %v", id, err)
 		}
 	}
-	created, _ := svc.Publish(ctx, alice, example(t, "minimal.scenario.json"))
+	created, _ := svc.Publish(ctx, alice, publishing.Link, example(t, "minimal.scenario.json"))
 	store.TakeDown(created.ID)
-	if _, err := svc.Get(ctx, created.ID); !errors.Is(err, publishing.ErrNotFound) {
+	if _, err := svc.Get(ctx, created.ID, 0); !errors.Is(err, publishing.ErrNotFound) {
 		t.Fatalf("taken down should read as not found: %v", err)
 	}
 	if _, err := svc.Update(ctx, created.ID, publishing.Credential{OwnerID: alice}, example(t, "minimal.scenario.json")); !errors.Is(err, publishing.ErrNotFound) {
@@ -265,7 +280,7 @@ func TestIDsAreUniqueAndWellFormed(t *testing.T) {
 	doc := example(t, "minimal.scenario.json")
 	seen := map[string]bool{}
 	for i := 0; i < 200; i++ {
-		c, err := svc.Publish(ctx, alice, doc)
+		c, err := svc.Publish(ctx, alice, publishing.Link, doc)
 		if err != nil {
 			t.Fatal(err)
 		}
