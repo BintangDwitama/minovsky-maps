@@ -52,6 +52,8 @@ CI (`.github/workflows/ci.yml`) runs all web and server checks on every push.
 
 ## Share links
 
+The site opens on a **landing page** at `/`; the editor lives at `/editor`, Browse at `/browse` and My scenarios (your browser's draft plus your saved scenarios) at `/my`. Older `/#/…` links still work.
+
 **Share** in the editor copies a link like `https://<host>/#/view/1.<payload>`. The whole scenario is stored in the part after `#` (compressed), so nothing is uploaded and the host never receives it. Opening the link shows a read-only, printable scenario sheet with a setup checklist; **Edit a copy** opens it in the editor.
 
 Links are permanent. The `1.` prefix is the link format version; never change how an existing version is decoded (`web/src/infrastructure/shareLinkGolden.test.ts` guards this).
@@ -176,3 +178,5 @@ Keep the `pages.dev` project deployed with a one-page redirect that forwards the
 ```html
 <script>location.replace('https://<new-domain>' + location.pathname + location.hash)</script>
 ```
+
+Also update the link-preview tags in `web/index.html` (`og:url` and `og:image` hold the absolute `pages.dev` address) and the Google OAuth redirect URI. The preview image `web/public/og-image.png` is our own board rendering; regenerate it if the hero board changes.

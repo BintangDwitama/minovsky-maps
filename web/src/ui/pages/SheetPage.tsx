@@ -8,7 +8,7 @@ import { Button } from '../atoms/Button';
 import { renderBoardSvg } from '../export/renderBoardSvg';
 import { LINK_FAILURE } from '../linkMessages';
 import { ErrorList } from '../organisms/dialogs';
-import { appAddress, editHash, navigate, viewHash } from '../router';
+import { appAddress, editHash, navigate, openEditor, viewHash } from '../router';
 import { SheetMessage, SheetView } from './SheetView';
 
 /** Composition root of the share-link sheet. */
@@ -31,7 +31,7 @@ export function SheetPage({ link }: { link: string }) {
         title={msg.title}
         testId="link-error"
         actions={
-          <Button variant="primary" icon="new" onClick={() => navigate('#/')}>
+          <Button variant="primary" icon="new" onClick={() => openEditor()}>
             Open the editor
           </Button>
         }

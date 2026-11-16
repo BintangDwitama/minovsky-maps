@@ -11,8 +11,8 @@ import { Button } from '../atoms/Button';
 import { BrowseFilters } from '../organisms/BrowseFilters';
 import { ErrorList } from '../organisms/dialogs';
 import { ScenarioCard } from '../organisms/ScenarioCard';
-import { BROWSE_PATH, navigate } from '../router';
-import { SheetLayout } from '../templates/SheetLayout';
+import { BROWSE_PATH } from '../router';
+import { SiteLayout } from '../templates/SiteLayout';
 
 type Load =
   { kind: 'loading'; slow: boolean } | { kind: 'ready' } | { kind: 'failed'; errors: string[] };
@@ -76,13 +76,7 @@ export function BrowsePage() {
   };
 
   return (
-    <SheetLayout
-      actions={
-        <Button variant="frame" icon="new" onClick={() => navigate('#/')}>
-          Open the editor
-        </Button>
-      }
-    >
+    <SiteLayout current="browse">
       <h1 className="mb-1 text-[32px] leading-tight font-bold font-stretch-condensed">
         Browse scenarios
       </h1>
@@ -137,6 +131,6 @@ export function BrowsePage() {
           </>
         )}
       </section>
-    </SheetLayout>
+    </SiteLayout>
   );
 }

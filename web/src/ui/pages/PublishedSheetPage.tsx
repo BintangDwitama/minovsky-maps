@@ -27,6 +27,7 @@ import {
   editPublishedHash,
   goToPath,
   navigate,
+  openEditor,
   replaceHashSilently,
 } from '../router';
 import { PrivateNotice } from '../organisms/PrivateNotice';
@@ -109,8 +110,8 @@ export function PublishedSheetPage({ id, editToken }: PublishedSheetPageProps) {
   }, [id, services]);
   useEffect(() => load(), [load]);
 
-  const openEditor = (
-    <Button variant="primary" icon="new" onClick={() => navigate('#/')}>
+  const openEditorButton = (
+    <Button variant="primary" icon="new" onClick={() => openEditor()}>
       Open the editor
     </Button>
   );
@@ -129,13 +130,17 @@ export function PublishedSheetPage({ id, editToken }: PublishedSheetPageProps) {
       );
     case 'not-found':
       return (
-        <SheetMessage title="Scenario not found" testId="published-not-found" actions={openEditor}>
+        <SheetMessage
+          title="Scenario not found"
+          testId="published-not-found"
+          actions={openEditorButton}
+        >
           <p>This link doesn’t point to a published scenario. It may have been taken down.</p>
         </SheetMessage>
       );
     case 'invalid':
       return (
-        <SheetMessage title="This scenario can’t be shown" actions={openEditor}>
+        <SheetMessage title="This scenario can’t be shown" actions={openEditorButton}>
           <ErrorList intro="The published data has problems:" errors={state.errors} />
         </SheetMessage>
       );
@@ -149,7 +154,7 @@ export function PublishedSheetPage({ id, editToken }: PublishedSheetPageProps) {
               <Button variant="primary" icon="rotateCw" onClick={() => load()}>
                 Try again
               </Button>
-              {openEditor}
+              {openEditorButton}
             </>
           }
         >

@@ -114,6 +114,7 @@ export const startDraftAutosave = (
   session: EditorSession,
   drafts: DraftStore,
   delayMs = 800,
+  now: () => Date = () => new Date(),
 ): (() => void) => {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let last = session.getSnapshot().scenario;
@@ -121,7 +122,7 @@ export const startDraftAutosave = (
   const flush = () => {
     timer = null;
     const snap = session.getSnapshot();
-    if (snap.dirty) drafts.save(serializeDraft(snap.scenario, snap.publication));
+    if (snap.dirty) drafts.save(serializeDraft(snap.scenario, snap.publication, now()));
     else drafts.clear();
   };
   const unsubscribe = session.subscribe(() => {
@@ -144,11 +145,16 @@ export const startDraftAutosave = (
 export interface Draft {
   readonly scenario: Scenario;
   readonly publication: PublicationRef | null;
+  /** When it was autosaved (ISO time); null for drafts saved before this was recorded. */
+  readonly savedAt: string | null;
 }
 
 /** Drafts wrap the scenario so editor-only state (publication) survives a reload. */
-const serializeDraft = (scenario: Scenario, publication: PublicationRef | null): string =>
-  JSON.stringify({ draft: 2, scenario, publication });
+const serializeDraft = (
+  scenario: Scenario,
+  publication: PublicationRef | null,
+  savedAt: Date,
+): string => JSON.stringify({ draft: 2, scenario, publication, savedAt: savedAt.toISOString() });
 
 /** A restorable draft, if one exists and still loads. Accepts drafts saved as a bare scenario too. */
 export const findDraft = (drafts: DraftStore): Draft | null => {
@@ -156,6 +162,7 @@ export const findDraft = (drafts: DraftStore): Draft | null => {
   if (!text) return null;
   let doc: unknown = null;
   let publication: PublicationRef | null = null;
+  let savedAt: string | null = null;
   try {
     const parsed = JSON.parse(text) as Record<string, unknown>;
     if (parsed && parsed.draft === 2 && 'scenario' in parsed) {
@@ -165,6 +172,9 @@ export const findDraft = (drafts: DraftStore): Draft | null => {
         p && typeof p.id === 'string'
           ? { id: p.id, ...(p.owned === true ? { owned: true } : {}) }
           : null;
+      if (typeof parsed.savedAt === 'string' && !Number.isNaN(Date.parse(parsed.savedAt))) {
+        savedAt = parsed.savedAt;
+      }
     } else {
       doc = parsed; // pre-publishing drafts: the scenario itself
     }
@@ -176,7 +186,24 @@ export const findDraft = (drafts: DraftStore): Draft | null => {
     drafts.clear();
     return null;
   }
-  return { scenario: r.scenario, publication };
+  return { scenario: r.scenario, publication, savedAt };
+};
+
+/** Throw the browser's draft away (My scenarios → Discard). */
+export const discardDraft = (drafts: DraftStore): void => drafts.clear();
+
+/**
+ * "edited 5 minutes ago" style wording for a draft's save time; "edited earlier" when unknown.
+ * `now` is passed in so the wording is testable.
+ */
+export const editedAgo = (savedAt: string | null, now: Date): string => {
+  if (!savedAt) return 'edited earlier';
+  const s = Math.max(0, (now.getTime() - Date.parse(savedAt)) / 1000);
+  const unit = (n: number, word: string) => `edited ${n} ${word}${n === 1 ? '' : 's'} ago`;
+  if (s < 60) return 'edited just now';
+  if (s < 3600) return unit(Math.floor(s / 60), 'minute');
+  if (s < 86400) return unit(Math.floor(s / 3600), 'hour');
+  return unit(Math.floor(s / 86400), 'day');
 };
 
 export const restoreDraft = (session: EditorSession, draft: Draft): void => {

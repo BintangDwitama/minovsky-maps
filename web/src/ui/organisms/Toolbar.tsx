@@ -6,6 +6,7 @@ import { Brand } from '../molecules/Brand';
 import { Menu } from '../molecules/Menu';
 import { useAccountMenu } from './AccountMenu';
 import { BROWSE_PATH, goToPath } from '../router';
+import type { ReactNode } from 'react';
 
 export interface ToolbarProps {
   onNew(): void;
@@ -60,7 +61,9 @@ export function Toolbar({
     return (
       <header className="flex items-center gap-1 border-b-2 border-vent bg-frame px-1.5 py-1 text-frame-ink">
         <span className="flex min-w-0 flex-1 items-center gap-2 pl-1">
-          <BrandMark />
+          <HomeLink>
+            <BrandMark />
+          </HomeLink>
           <span
             className="truncate font-semibold font-stretch-condensed"
             title={scenario.meta.name}
@@ -106,7 +109,9 @@ export function Toolbar({
 
   return (
     <header className="flex flex-wrap items-center gap-1 border-b-2 border-vent bg-frame px-2.5 py-1.5 text-frame-ink">
-      <Brand />
+      <HomeLink>
+        <Brand />
+      </HomeLink>
       <Button variant="frame" icon="new" onClick={onNew}>
         New
       </Button>
@@ -181,5 +186,23 @@ export function Toolbar({
       )}
       {acct.dialogs}
     </header>
+  );
+}
+
+/** The brand, linking to the landing page (the draft is autosaved, so leaving is safe). */
+function HomeLink({ children }: { children: ReactNode }) {
+  return (
+    <a
+      href="/"
+      title="Minovsky Maps home"
+      className="flex items-center rounded-ui focus-visible:outline-vent coarse:min-h-11"
+      onClick={(e) => {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        goToPath('/');
+      }}
+    >
+      {children}
+    </a>
   );
 }

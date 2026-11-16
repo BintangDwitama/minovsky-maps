@@ -5,8 +5,7 @@ import { Button } from '../atoms/Button';
 import { Icon } from '../atoms/Icon';
 import { Select } from '../atoms/inputs';
 import { VISIBILITY_ICON } from './VisibilityPicker';
-import { Hint } from '../atoms/Text';
-import { DialogShell, ErrorList } from './dialogs';
+import { ErrorList } from './dialogs';
 
 interface Row {
   readonly id: string;
@@ -31,17 +30,14 @@ export type MyScenariosSource =
       kind: 'browser';
       scenarios: readonly Publication[];
       onForget(id: string): void;
-      /** Null when sign-in is not available on this server. */
-      onSignIn: (() => void) | null;
     };
 
-export interface MyScenariosDialogProps {
+export interface MyScenariosListProps {
   source: MyScenariosSource;
   shortLinkFor(id: string): string;
   onOpen(id: string): void;
   onEdit(id: string): void;
   onCopy(id: string): Promise<boolean>;
-  onClose(): void;
 }
 
 type LoadState =
@@ -49,15 +45,14 @@ type LoadState =
   | { kind: 'ready'; rows: readonly Row[] }
   | { kind: 'failed'; errors: string[] };
 
-/** Your published scenarios: the account's (signed in) or this browser's legacy ones. */
-export function MyScenariosDialog({
+/** A list of saved scenarios: the account's (from the server) or this browser's legacy ones. */
+export function MyScenariosList({
   source,
   shortLinkFor,
   onOpen,
   onEdit,
   onCopy,
-  onClose,
-}: MyScenariosDialogProps) {
+}: MyScenariosListProps) {
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
   const [confirming, setConfirming] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
@@ -114,38 +109,7 @@ export function MyScenariosDialog({
   };
 
   return (
-    <DialogShell
-      title="My published scenarios"
-      onClose={onClose}
-      actions={
-        <Button variant="primary" onClick={onClose}>
-          Close
-        </Button>
-      }
-    >
-      {account ? (
-        <Hint as="p" className="mt-0">
-          Published with your account. Sign in on any device to see them here.
-        </Hint>
-      ) : (
-        <>
-          <Hint as="p" className="mt-0">
-            Stored in this browser only. These scenarios were published before accounts existed.
-          </Hint>
-          {source.onSignIn ? (
-            <p
-              className="mb-3 flex flex-wrap items-center gap-2"
-              data-testid="my-scenarios-sign-in"
-            >
-              <span>Sign in to keep them on every device.</span>
-              <Button small icon="user" onClick={source.onSignIn}>
-                Sign in with Google
-              </Button>
-            </p>
-          ) : null}
-        </>
-      )}
-
+    <div data-testid="my-scenarios-section">
       {deleteErrors ? <ErrorList intro="Could not delete:" errors={deleteErrors} /> : null}
 
       {view.kind === 'loading' ? (
@@ -160,7 +124,7 @@ export function MyScenariosDialog({
       ) : view.rows.length === 0 ? (
         <p data-testid="my-scenarios-empty">
           {account
-            ? 'Scenarios you publish appear here.'
+            ? 'Scenarios you save online appear here.'
             : 'No scenarios from before accounts in this browser.'}
         </p>
       ) : (
@@ -244,6 +208,6 @@ export function MyScenariosDialog({
           })}
         </ul>
       )}
-    </DialogShell>
+    </div>
   );
 }

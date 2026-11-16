@@ -1,7 +1,5 @@
 import { useEffect, type ReactNode } from 'react';
-import { Button } from '../atoms/Button';
-import { navigate } from '../router';
-import { SheetLayout } from '../templates/SheetLayout';
+import { SiteLayout } from '../templates/SiteLayout';
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -18,13 +16,7 @@ export function PrivacyPage() {
     document.title = 'Privacy · Minovsky Maps';
   }, []);
   return (
-    <SheetLayout
-      actions={
-        <Button variant="frame" icon="new" onClick={() => navigate('#/')}>
-          Open the editor
-        </Button>
-      }
-    >
+    <SiteLayout>
       <article className="mx-auto max-w-[68ch]" data-testid="privacy">
         <h1 className="mb-4 text-[28px] leading-tight font-bold font-stretch-condensed">
           What we store
@@ -76,6 +68,6 @@ export function PrivacyPage() {
           Assemble.
         </p>
       </article>
-    </SheetLayout>
+    </SiteLayout>
   );
 }

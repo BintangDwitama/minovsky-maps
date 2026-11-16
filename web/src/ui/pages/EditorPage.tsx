@@ -4,7 +4,6 @@ import { EditorSession } from '../../application/editorSession';
 import {
   canUpdate,
   changeVisibility,
-  deletePublished,
   editPublished,
   openPublished,
   publishScenario,
@@ -58,15 +57,7 @@ import {
   ShareLinkDialog,
 } from '../organisms/dialogs';
 import { PUBLISH_FAILURE } from '../publishMessages';
-import { MyScenariosDialog } from '../organisms/MyScenariosDialog';
-import {
-  appAddress,
-  editPublishedHash,
-  goToPath,
-  navigate,
-  replaceHashSilently,
-  viewHash,
-} from '../router';
+import { appAddress, MY_PATH, goToPath, navigate, settleOnEditor, viewHash } from '../router';
 import { GoalsEditor } from '../organisms/GoalsEditor';
 import { HexBoard } from '../organisms/HexBoard';
 import { AnalysisPanel } from '../organisms/AnalysisPanel';
@@ -129,7 +120,6 @@ type DialogState =
   | { kind: 'replace-with-shared'; scenario: Scenario; apply(): void; back(): void }
   | { kind: 'publish'; mode: 'save' | 'update'; phase: SavePhase; id?: string }
   | { kind: 'busy'; title: string; slow: boolean }
-  | { kind: 'my-scenarios'; revision: number }
   | { kind: 'sign-in' }
   | { kind: 'errors'; title: string; intro: string; errors: string[] };
 
@@ -307,11 +297,14 @@ function Editor({
   /* ---- draft restore + autosave (an "Edit a copy" import handles the draft itself) ---- */
   const importedAtMount = useRef(importLink !== null || publishedId !== null);
   const signInResultRef = useRef(account.signInResult);
+  // "Continue editing" on My scenarios opens /editor?resume=draft (read once, then tidied away)
+  const resumeRef = useRef(new URLSearchParams(location.search).get('resume') === 'draft');
   useEffect(() => {
+    if (resumeRef.current && location.search) settleOnEditor();
     if (!importedAtMount.current) {
       const draft = findDraft(drafts);
-      // back from signing in: carry on with the same work, no question asked
-      if (draft && signInResultRef.current) restoreDraft(session, draft);
+      // back from signing in, or asked to continue: carry on with the same work, no question asked
+      if (draft && (signInResultRef.current || resumeRef.current)) restoreDraft(session, draft);
       else if (draft) setDialog({ kind: 'draft', draft });
     }
     return startDraftAutosave(session, drafts);
@@ -322,7 +315,7 @@ function Editor({
   useEffect(() => {
     if (!importLink || handledImport.current === importLink) return;
     handledImport.current = importLink;
-    replaceHashSilently('#/');
+    settleOnEditor();
     const r = openScenarioLink(importLink, compressor);
     if (!r.ok) {
       const msg = LINK_FAILURE[r.reason];
@@ -363,7 +356,7 @@ function Editor({
   useEffect(() => {
     if (!publishedId || handledPublished.current === publishedId) return;
     handledPublished.current = publishedId;
-    replaceHashSilently('#/');
+    settleOnEditor();
     let cancelled = false;
     setDialog({ kind: 'busy', title: 'Opening published scenario', slow: false });
     void openPublished(publishedId, publisher, { onSlow: markSlowRef.current }).then((r) => {
@@ -470,7 +463,7 @@ function Editor({
           onShare={() => void onShare()}
           onExport={() => void onExport()}
           onPublish={onPublish}
-          onMyScenarios={() => setDialog({ kind: 'my-scenarios', revision: 0 })}
+          onMyScenarios={() => goToPath(MY_PATH)}
           publishMode={publishMode}
         />
       }
@@ -590,41 +583,6 @@ function Editor({
                 return r.ok ? null : r.errors.join(' ');
               }}
               onCopy={(link) => clipboard.writeText(link)}
-              onClose={close}
-            />
-          ) : null}
-
-          {dialog.kind === 'my-scenarios' ? (
-            <MyScenariosDialog
-              source={
-                account.account
-                  ? {
-                      kind: 'account',
-                      load: () => account.service.listOwned(),
-                      onDelete: (id) => deletePublished(session, publisher, id),
-                      onVisibility: (id, v) => changeVisibility(publisher, id, v),
-                    }
-                  : {
-                      kind: 'browser',
-                      scenarios: publications.list(),
-                      onForget: (id) => {
-                        publications.remove(id);
-                        // re-render the list (and the Publish/Update button) from the store
-                        setDialog({ kind: 'my-scenarios', revision: dialog.revision + 1 });
-                      },
-                      onSignIn: account.available ? () => account.signIn() : null,
-                    }
-              }
-              shortLinkFor={(id) => shortLink(appAddress(), id)}
-              onOpen={(id) => {
-                close();
-                goToPath(`/s/${id}`);
-              }}
-              onEdit={(id) => {
-                close();
-                navigate(editPublishedHash(id));
-              }}
-              onCopy={(id) => clipboard.writeText(shortLink(appAddress(), id))}
               onClose={close}
             />
           ) : null}

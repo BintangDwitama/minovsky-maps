@@ -5,6 +5,8 @@ import { AccountProvider } from './hooks/useAccount';
 import { AccountNotice } from './organisms/AccountNotice';
 import { BrowsePage } from './pages/BrowsePage';
 import { EditorPage } from './pages/EditorPage';
+import { LandingPage } from './pages/LandingPage';
+import { MyScenariosPage } from './pages/MyScenariosPage';
 import { PrivacyPage } from './pages/PrivacyPage';
 import { PublishedSheetPage } from './pages/PublishedSheetPage';
 import { SheetPage } from './pages/SheetPage';
@@ -30,6 +32,8 @@ function Page() {
   if (route.page === 'sheet') return <SheetPage key={route.link} link={route.link} />;
   if (route.page === 'privacy') return <PrivacyPage />;
   if (route.page === 'browse') return <BrowsePage />;
+  if (route.page === 'landing') return <LandingPage />;
+  if (route.page === 'my') return <MyScenariosPage />;
   if (route.page === 'published') {
     return <PublishedSheetPage key={route.id} id={route.id} editToken={route.editToken} />;
   }
